@@ -319,4 +319,57 @@ Utiliser fastapi-users : une lib complète avec JWT, OAuth, gestion des rôles, 
 
 Ou coder ton propre système avec passlib, sqlalchemy, et pydantic.
 
-Tu veux que je te montre comment démarrer un système d’auth avec fastapi-users ? Ou tu préfères qu’on structure ensemble ton backend en modules ?
+---
+
+🛠️ Pourquoi FastAPI est un bon socle
+Asynchrone natif : parfait pour interroger plusieurs brokers en parallèle sans bloquer le serveur.
+
+Documentation automatique : Swagger UI pour tester et exposer ton API aux développeurs tiers.
+
+Modularité : tu peux structurer ton app en microservices (auth, alertes, gestion des tokens…).
+
+WebSocket intégré : pour les alertes en temps réel ou les mises à jour de prix.
+
+🧠 Python : l’écosystème crypto-friendly
+Librairies comme ccxt, web3.py, pandas, sqlalchemy, celery pour orchestrer les tâches.
+
+Facilité d’intégration avec des bases comme PostgreSQL, Redis, MongoDB.
+
+Communauté énorme et riche en ressources.
+
+🔥 Mojo : le turbo pour les calculs intensifs
+Tu pourrais utiliser Mojo pour :
+
+Calculs de performance sur les portefeuilles (P&L, volatilité, corrélation…).
+
+Traitement de flux en temps réel (ex. agrégation de trades).
+
+Optimisation des alertes complexes (ex. détection de patterns ou seuils dynamiques).
+
+Et comme Mojo est interopérable avec Python, tu peux l’intégrer progressivement dans ton backend sans tout réécrire.
+
+---
+
+```bash
+[Frontend React/Vue]
+        ↓
+[FastAPI Backend]
+        ├── Auth & Users
+        ├── Token Manager (Python)
+        ├── Broker Connectors (async)
+        ├── Alert Engine (Mojo)
+        └── WebSocket Notifier
+```
+Tutos FastAPI
+https://www.youtube.com/watch?v=NhzqPSvT4A8
+
+
+https://www.youtube.com/watch?time_continue=1&v=0-yncL0bqZs&embeds_referring_euri=https%3A%2F%2Fcopilot.microsoft.com%2F&source_ve_path=Mjg2NjY
+
+https://www.youtube.com/watch?time_continue=1&v=0-yncL0bqZs&embeds_referring_euri=https%3A%2F%2Fcopilot.microsoft.com%2F&source_ve_path=Mjg2NjY
+
+https://www.youtube.com/watch?time_continue=9&v=D7-YDr6ZVZI&embeds_referring_euri=https%3A%2F%2Fcopilot.microsoft.com%2F&source_ve_path=Mjg2NjY
+
+https://www.youtube.com/watch?v=7D_0JTeaKWg&t=10s&ab_channel=JordyBayoTech
+
+python -m venv .venv
