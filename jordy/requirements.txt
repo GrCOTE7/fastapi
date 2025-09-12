@@ -3,6 +3,7 @@ flet
 flet-cli
 flet-desktop
 uvicorn
+pydantic
 # python-multipart
 # tensorflow
 # streamlit
