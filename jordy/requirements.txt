@@ -1,0 +1,8 @@
+fastapi
+flet
+flet-cli
+flet-desktop
+uvicorn
+# python-multipart
+# tensorflow
+# streamlit

@@ -360,15 +360,11 @@ Et comme Mojo est interopérable avec Python, tu peux l’intégrer progressivem
         ├── Alert Engine (Mojo)
         └── WebSocket Notifier
 ```
+
 Tutos FastAPI
 https://www.youtube.com/watch?v=NhzqPSvT4A8
 
-
 https://www.youtube.com/watch?time_continue=1&v=0-yncL0bqZs&embeds_referring_euri=https%3A%2F%2Fcopilot.microsoft.com%2F&source_ve_path=Mjg2NjY
-
-https://www.youtube.com/watch?time_continue=1&v=0-yncL0bqZs&embeds_referring_euri=https%3A%2F%2Fcopilot.microsoft.com%2F&source_ve_path=Mjg2NjY
-
-https://www.youtube.com/watch?time_continue=9&v=D7-YDr6ZVZI&embeds_referring_euri=https%3A%2F%2Fcopilot.microsoft.com%2F&source_ve_path=Mjg2NjY
 
 https://www.youtube.com/watch?v=7D_0JTeaKWg&t=10s&ab_channel=JordyBayoTech
 
