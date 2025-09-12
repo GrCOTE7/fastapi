@@ -1,9 +1,9 @@
-from typing import Union, List, Optional
 from fastapi import FastAPI
+from typing import Union, List, Optional
 from pydantic import BaseModel
 import json
 
-with open("pokemons.json", "r") as f:
+with open("data/pokemons.json", "r") as f:
     pokemons_list = json.load(f)
 
 list_pokemons = {k + 1: v for k, v in enumerate(pokemons_list)}
