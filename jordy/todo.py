@@ -3,6 +3,7 @@ import flet as ft
 from typing import Union, List, Optional
 from pydantic import BaseModel
 
+
 app = FastAPI(
     title="Ma super API ToDo",
     version="1.0.0",
@@ -10,7 +11,7 @@ app = FastAPI(
 )
 
 
-class Todo(BaseModel):
+class ToDo(BaseModel):
     id: int
     title: str
     description: Optional[str] = None
@@ -19,18 +20,18 @@ class Todo(BaseModel):
 
 
 class TodoResponse(BaseModel):
-    items: List[Todo]
+    items: List[ToDo]
     total: int
 
 
 store_todo = [
-    Todo(
+    ToDo(
         id=1,
         title="Acheter du lait",
         description="Aller au supermarché et acheter du lait",
         due_date="2023-10-01",
     ),
-    Todo(
+    ToDo(
         id=2,
         title="Envoyer un email",
         description="Envoyer un email à mon patron",
@@ -44,18 +45,18 @@ async def todos() -> dict:
     return {"items": store_todo, "total": len(store_todo)}
 
 
-@app.get("/{todo_id}")
-async def read_todo(
-    todo_id: int = Path(..., description="The ID of the todo to retrieve", gt=0)
-) -> Todo:
+@app.get("/{id}")
+async def get_todo(
+    id: int = Path(..., description="The ID of the todo to retrieve", gt=0)
+) -> ToDo:
     for todo in store_todo:
-        if todo.id == todo_id:
+        if todo.id == id:
             return todo
     raise HTTPException(status_code=404, detail="ToDo not found")
 
 
-@app.post("/todo", response_model=Todo, status_code=201)
-async def create_todo(todo: Todo) -> Todo:
+@app.post("/todo", response_model=ToDo, status_code=201)
+async def create_todo(todo: ToDo) -> ToDo:
     store_todo.append(todo)
     return todo
 
