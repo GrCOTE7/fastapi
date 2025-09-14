@@ -1,4 +1,8 @@
 fastApi
 flet
-uvicorn
+flet-cli
+flet-desktop
+pandas
 tensorflow
+tabulate
+uvicorn

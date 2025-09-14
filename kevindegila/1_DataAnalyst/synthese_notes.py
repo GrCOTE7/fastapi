@@ -1,6 +1,11 @@
 import numpy as np
 from tabulate import tabulate
 
+
+n = np.arange(1, 10)
+print(np.vstack([n, n**2, n**3]))
+print("-" * 55)
+
 notes = np.random.randint(21, size=(3, 5))
 
 row_means = np.mean(notes, axis=1)
@@ -27,3 +32,35 @@ headers = (
 )
 
 print(tabulate(table, headers=headers, tablefmt="grid"))
+
+print("-" * 55)
+
+# Math, Physique, SVT
+x = np.array(
+    [
+        [6, 8, 4],
+        [12, 10, 7],
+        [8, 13, 11],
+        [5, 7, 6],
+        [10, 2, 11],
+    ]
+)
+
+moyennes = np.mean(x, axis=1)
+for i, m in enumerate(moyennes, 1):
+    print(f"Élève {i} : {m:.2f}")
+print("-" * 55)
+
+moyennes = np.mean(x, axis=1)
+table = [[f"Élève {i+1}", f"{m:.2f}"] for i, m in enumerate(moyennes)]
+print(tabulate(table, headers=["Étudiant", "Moyenne"], tablefmt="grid"))
+print("-" * 55)
+
+print(x[x > 10])
+print("-" * 55)
+indices = np.argwhere(x > 10)
+for i, j in indices:
+    print(f"Élève {i+1}, Matière {j+1} : {x[i, j]}")
+print("-" * 55)
+
+print(*[f"\bÉlève {i+1}, Matière {j+1} : {x[i, j]}\n" for i, j in indices])
