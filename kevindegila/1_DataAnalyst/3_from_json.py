@@ -4,29 +4,10 @@ import math, os
 from tabulate import tabulate
 import urllib.request
 
-print("-" * 55)
+from subs.get_json import get_movies
 
-dossier = "data"
-fichier = os.path.join(dossier, "movie.csv")
-
-url = (
-    "https://raw.githubusercontent.com/kevindegila/data-analyst/main/datasets/movie.csv"
-)
-
-# Créer le dossier si nécessaire
-os.makedirs(dossier, exist_ok=True)
-
-# Télécharger le fichier seulement s'il n'existe pas
-if not os.path.exists(fichier):
-    urllib.request.urlretrieve(url, fichier)
-
-# Lecture robuste du CSV
-try:
-    movie = pd.read_csv(fichier, sep=",")
-except pd.errors.ParserError:
-    # movie = pd.read_csv(fichier, sep=",", engine="python", on_bad_lines="skip")
-    movie = pd.read_csv(fichier, sep=",", engine="python", on_bad_lines="ignore")
-    print("Avertissement: certaines lignes mal formées ont été ignorées.")
+if __name__ == "__main__":
+    movie = get_movies()
 
 print(movie.info())
 print(movie.head(3))

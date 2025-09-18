@@ -2,7 +2,10 @@ fastApi
 flet
 flet-cli
 flet-desktop
+matplotlib
 pandas
 tensorflow
 tabulate
 uvicorn
+
+seaborn
