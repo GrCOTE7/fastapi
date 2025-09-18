@@ -25,8 +25,8 @@ if __name__ == "__main__":
     print("-" * 111)
 
     d = movie["duration"]
-    print("Moyenne:", d.mean(), "\n\bÉcart-type:", d.std())
-
+    print("Moyenne:", f"{d.mean():.2f}", "\n\bÉcart-type:", f"{d.std():.2f}")
+    # exit()
     import matplotlib.pyplot as plt
 
     # # ✅ Histogramme & Nuage de points (côte à côte)
