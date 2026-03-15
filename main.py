@@ -8,7 +8,7 @@ from divers.yt_videos.to_see import (
     format_remaining_time_fr,
 )
 
-from divers.yt_videos.scrap_some import (
+from divers.yt_videos.scrap import (
     scrap_some
 )
 

@@ -1,0 +1,85 @@
+import sys
+from pymox_kit import *
+
+
+def get_author_name(ida=None):
+    """_summary_
+
+    Args:
+        ida (_type_, optional): _description_. Defaults to None.
+
+    Returns:
+        _type_: _description_
+    """
+    AUTHORS = {
+        0: "doro2255",
+        1: "LionelCOTE",
+        2: "c57-u5s",
+        3: "CodeAvecJonathan",
+        4: "DataAvecJB",
+        5: "MasteringAI-q9g",
+        6: "CodeGoat-s2y",
+        
+        # 0: "doro2255",
+        # 1: "LionelCOTE",
+        # 2: "c57-u5s",
+        # 3: "Alphorm",
+        # 4: "tseries",
+        # 5: "coach-exam",
+        # 6: "CodeAvecJonathan",
+        # 7: "Gravenilvectuto",
+        # 8: "hassanbahi",
+        # 9: "donaldprogrammeur",
+        # 10: "DataAvecJB",
+        # 11: "bandedecodeurs",
+        # 12: "MasteringAI-q9g",
+        # 13: "CodeGoat-s2y",
+        # 14: "KevinDegila",
+        # 15: "InformatiqueSansComplexe",
+        # 16: "MachineLearnia",
+    }
+
+    # Pour mise au point du script ❌ toutes en partant du bas saud tseries et alphorn
+    # AUTHOR = "doro2255"                 #      1 video  -         28 vues - 7 minutes
+
+    # AUTHOR= "LionelCOTE"                #    12 videos -      3 952 vues - 1 heure et 27 minutes - Aide pour mise au point car peu de vidéos
+
+    # AUTHOR = "c57-u5s"                  #     16 videos -      1 097 vues - 11 heures et 23 minutes
+    # AUTHOR = "Alphorm"                  #   4064 videos - 15 577 306 vues - 665 heures et 3 minutes - Au passage, diverses notions liées à l'informatique
+    # AUTHOR = "tseries"  # 23435 videos - 329 006 594 812 vues - 2011 heures et 30 minutes - Compte qui génère le + de gains au Monde avec YT !
+
+    # Niveau scolaire
+    # AUTHOR = "coach-exam"²              #     110 videos -   194 918 vues - 12 heures et 54 minutes
+
+    # Initiation à Python (Bases)
+    # AUTHOR = "CodeAvecJonathan"         #     10 videos -  5 386 712 vues -  15 heures et 16 minutes
+    # AUTHOR = "Gravenilvectuto"          #    174 videos - 26 844 155 vues -  49 heures et 39 minutes
+    # AUTHOR = "hassanbahi"               #    843 videos - 52 877 137 vues - 191 heures et 13 minutes - Top pour comprendre super bien les bases - Attention: Pas mal de vidéos + anciennes avec le langage C, mais facilement adaptable ou catégoriser 'done' ;-) !... Sinon, c aussi 1 super exo ;-) !
+
+    # Python approfondi
+    # AUTHOR = "donaldprogrammeur"        #    424 videos -  1 143 154 vues - 303 heures et 56 minutes - Des bases à DevOps
+
+    # Python - FastAPI
+    # AUTHOR = "DataAvecJB"               #     16 videos -     49 885 vues -  8 heures et  6 minutes - FastAPI en moins de 10 minutes
+    # AUTHOR = "bandedecodeurs"           #     50 videos -    740 735 vues - 21 heures et 16 minutes - + généraliste, intro simple et visuelle
+    # AUTHOR = "MasteringAI-q9g"          #     29 videos -      3 701 vues - 10 heures et 41 minutes - Exemple pédagogique orienté objet et plus complet (DB, validation, endpoints)
+
+    # AUTHOR = "CodeGoat-s2y"             #     38 videos -     41 614 vues - 24 heures et 23 minutes - En anglais, mais archi complet
+
+    # Python pour l'IA
+    # AUTHOR = "KevinDegila"              #
+    # AUTHOR = "InformatiqueSansComplexe" #    284 videos -  1 809 388 vues - 33 heures et  8 minutes
+    # AUTHOR = "MachineLearnia"           #     65 videos - 11 493 021 vues - 22 heures et 53 minutes
+
+    if isinstance(ida, int) and ida in AUTHORS:
+        return AUTHORS[ida]
+    else:
+        file = "inc/authors.py"
+        sys.exit(
+            f"{RED}{ida} n'est pas un index correct{R}... : {RED}AUTHOR n'est pas défini dans {SB}{file}{R}. Arrêt du script.{R}"
+        )
+
+
+if __name__ == "__main__":
+    URL = get_author_name(0)
+    print(f"{GREEN}{URL}{R}")

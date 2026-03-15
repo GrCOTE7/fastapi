@@ -1,11 +1,10 @@
 from datetime import datetime
 from importlib import import_module
-import json, locale, os, sys, time
+import json, locale, os, shutil, time, threading, yt_dlp
+from yt_dlp.utils import DownloadError
 from typing import TYPE_CHECKING, TypedDict, cast
 from urllib.parse import parse_qs, urlparse
-
-import yt_dlp
-from yt_dlp.utils import DownloadError
+import inc.authors as auth
 
 # ❌ Compatibilité de PyMoX-Kit & locazle avec Linux (Cf. GH spaces)
 locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")
@@ -29,57 +28,31 @@ from pymox_kit import *
 if TYPE_CHECKING:
     from yt_dlp.YoutubeDL import _Params
 
-# Pour mise au point du script ❌ toutes en partant du bas saud tseries et alphorn
-# AUTHOR = "doro2255"                 #      1 video  -         28 vues - 7 minutes
-# AUTHOR = "LionelCOTE"               #     12 videos -      3 952 vues - 1 heure et 27 minutes - Aide pour mise au point car peu de vidéos
-# AUTHOR = "c57-u5s"                  #     16 videos -      1 097 vues - 11 heures et 23 minutes
-# AUTHOR = "Alphorm"                  #   4064 videos - 15 577 306 vues - 665 heures et 3 minutes - Au passage, diverses notions liées à l'informatique
-AUTHOR = "tseries"  # 23435 videos - 329 006 594 812 vues - 2011 heures et 30 minutes - Compte qui génère le + de gains au Monde avec YT !
 
+def ini(ida):
+    global AUTHOR, URL, SCRIPT_DIR, STORAGE_DIR, OUTPUT_FILE, OUTPUT_MD_FILE, CACHE_TTL, MAX_CUMULATED_403_ERRORS, PAUSE_ON_RATE_LIMIT, MAX_STALL_RETRIES, TOTAL_PLAYLIST_DROP_GUARD_RATIO, PLAYLIST_FETCH_TIMEOUT_SECONDS, get_valid_cache_entry, _cache_utils_module
 
-# Niveau scolaire
-# AUTHOR = "coach-exam"²              #     110 videos -   194 918 vues - 12 heures et 54 minutes
+    AUTHOR = auth.get_author_name(ida)  # 1 → 16
+    URL = f"https://www.youtube.com/@{AUTHOR}/videos"
 
-# Initiation à Python (Bases)
-# AUTHOR = "CodeAvecJonathan"         #     10 videos -  5 386 712 vues -  15 heures et 16 minutes
-# AUTHOR = "Gravenilvectuto"          #    174 videos - 26 844 155 vues -  49 heures et 39 minutes
-# AUTHOR = "hassanbahi"               #    843 videos - 52 877 137 vues - 191 heures et 13 minutes - Top pour comprendre super bien les bases - Attention: Pas mal de vidéos + anciennes avec le langage C, mais facilement adaptable ou catégoriser 'done' ;-) !... Sinon, c aussi 1 super exo ;-) !
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+    STORAGE_DIR = os.path.join(SCRIPT_DIR, "cache")
 
-# Python approfondi
-# AUTHOR = "donaldprogrammeur"        #    424 videos -  1 143 154 vues - 303 heures et 56 minutes - Des bases à DevOps
+    OUTPUT_FILE = os.path.join(STORAGE_DIR, f"{AUTHOR}_videos.json")  # 2ar
+    OUTPUT_MD_FILE = os.path.join(STORAGE_DIR, f"{AUTHOR}_YT.md")
+    CACHE_TTL = 600  # 3600 = 1 heure - 86400 = 1 jour
 
+    MAX_CUMULATED_403_ERRORS = 7
+    PAUSE_ON_RATE_LIMIT = 5  # secondes d'attente avant reprise automatique
+    MAX_STALL_RETRIES = 3  # passes sans progression avant arrêt définitif
+    TOTAL_PLAYLIST_DROP_GUARD_RATIO = 0.03  # 3%
+    PLAYLIST_FETCH_TIMEOUT_SECONDS = 45
 
-# Python - FastAPI
-# AUTHOR = "DataAvecJB"               #     16 videos -     49 885 vues -  8 heures et  6 minutes - FastAPI en moins de 10 minutes
-# AUTHOR = "bandedecodeurs"           #     50 videos -    740 735 vues - 21 heures et 16 minutes - + généraliste, intro simple et visuelle
-# AUTHOR = "MasteringAI-q9g"          #     29 videos -      3 701 vues - 10 heures et 41 minutes - Exemple pédagogique orienté objet et plus complet (DB, validation, endpoints)
+    _cache_utils_module = import_module(
+        f"{__package__}.cache_utils" if __package__ else "cache_utils"
+    )
 
-# AUTHOR = "CodeGoat-s2y"             #     38 videos -     41 614 vues - 24 heures et 23 minutes - En anglais, mais archi complet
-
-
-# Python pour l'IA
-# AUTHOR = "KevinDegila"              #
-# AUTHOR = "InformatiqueSansComplexe" #    284 videos -  1 809 388 vues - 33 heures et  8 minutes
-# AUTHOR = "MachineLearnia"           #     65 videos - 11 493 021 vues - 22 heures et 53 minutes
-
-if "AUTHOR" not in globals():
-    sys.exit(f"{RED}AUTHOR n'est pas défini. Arrêt du script.{R}")
-
-
-URL = f"https://www.youtube.com/@{AUTHOR}/videos"
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-STORAGE_DIR = os.path.join(SCRIPT_DIR, "cache")
-# OUTPUT_FILE = os.path.join(
-#     STORAGE_DIR, f".{AUTHOR}_videos.json"
-# )  # ❌ Simplify file name author_videos.json
-OUTPUT_FILE = os.path.join(STORAGE_DIR, f".{AUTHOR}_videos_scrap_some.json")  # 2ar
-OUTPUT_MD_FILE = os.path.join(STORAGE_DIR, f"{AUTHOR}.md")
-CACHE_TTL = 500000  # 3600 = 1 heure - 86400 = 1 jour
-
-_cache_utils_module = import_module(
-    f"{__package__}.cache_utils" if __package__ else "cache_utils"
-)
-get_valid_cache_entry = _cache_utils_module.get_valid_cache_entry
+    get_valid_cache_entry = _cache_utils_module.get_valid_cache_entry
 
 
 class YdlOpts(TypedDict, total=False):
@@ -90,6 +63,7 @@ class YdlOpts(TypedDict, total=False):
     extractor_retries: int
     progress: bool
     check_formats: bool
+    socket_timeout: int
     logger: object
 
 
@@ -99,6 +73,7 @@ YDL_OPTS_LIST: YdlOpts = {
     "ignoreerrors": True,
     "retries": 2,
     "extractor_retries": 2,
+    "socket_timeout": 20,
 }
 
 YDL_OPTS_DETAIL: YdlOpts = {
@@ -109,12 +84,8 @@ YDL_OPTS_DETAIL: YdlOpts = {
     "retries": 3,
     "extractor_retries": 3,
     "check_formats": False,
+    "socket_timeout": 20,
 }
-
-MAX_CUMULATED_403_ERRORS = 7
-PAUSE_ON_RATE_LIMIT = 5  # secondes d'attente avant reprise automatique
-MAX_STALL_RETRIES = 3  # passes sans progression avant arrêt définitif
-TOTAL_PLAYLIST_DROP_GUARD_RATIO = 0.03  # 3%
 
 
 def is_counted_ytdlp_error(exc):
@@ -389,7 +360,10 @@ def write_markdown(videos, total_playlist=None):
         partiel_txt1 = f" ⚠️ PARTIEL → "
         partiel_txt2 = f"/ **{total_playlist}** "
 
-    md += f"## Auteur **[{AUTHOR}]({URL})** ({partiel_txt1} {nb_videos_txt} {partiel_txt2}- {total_views_txt} vues - {total_duration_txt} )\n\n"
+    bilan = f"({partiel_txt1} {nb_videos_txt} {partiel_txt2}- {total_views_txt} vues - {total_duration_txt} )"
+    md += f"## Auteur **[{AUTHOR}]({URL})** {bilan}\n\n"
+
+    bilan = bilan.replace("*", "").strip()
 
     for video in videos:
         if not isinstance(video, dict):
@@ -412,7 +386,9 @@ def write_markdown(videos, total_playlist=None):
     with open(OUTPUT_MD_FILE, "w", encoding="utf-8") as f:
         f.write(md)
 
-    print(f"Fichier markdown généré : {OUTPUT_MD_FILE}")
+    print(f"{GREEN}Fichier markdown généré : {OUTPUT_MD_FILE}{R}")
+
+    return bilan
 
 
 def write_result(videos, total_playlist, adult_ids=None, adult_count=None):
@@ -488,7 +464,10 @@ def read_previous_counts():
         with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
 
+        videos = data.get("videos") if isinstance(data.get("videos"), list) else []
         scraped = data.get("scraped") if isinstance(data.get("scraped"), int) else None
+        if not isinstance(scraped, int):
+            scraped = len(videos)
         total_playlist = (
             data.get("total_playlist")
             if isinstance(data.get("total_playlist"), int)
@@ -518,6 +497,12 @@ def read_previous_counts():
 
         if adults_count is not None and adult_count < adults_count:
             adult_count = adults_count
+
+        # Compat: anciens JSON sans total_playlist ou total incohérent (ex: 0 avec vidéos).
+        if not isinstance(total_playlist, int) or total_playlist < (
+            scraped + adult_count
+        ):
+            total_playlist = max(0, scraped + adult_count)
 
         return scraped, total_playlist, adult_count
     except Exception:
@@ -649,6 +634,44 @@ def auto_heal_cache_invariants(cache_file):
         data.pop("effective_total", None)
         changed_fields.append("effective_total")
 
+    # Garantit les métadonnées minimales pour la reprise et l'affichage.
+    if data.get("url") != URL:
+        data["url"] = URL
+        changed_fields.append("url")
+
+    current_timestamp = data.get("timestamp")
+    current_timestamp_fr = data.get("timestamp_fr")
+    if not isinstance(current_timestamp, (int, float)):
+        # Si timestamp_fr est fiable, on l'utilise; sinon, on prend maintenant.
+        inferred_ts = timestamp_fr_to_epoch(current_timestamp_fr)
+        data["timestamp"] = float(
+            inferred_ts if inferred_ts is not None else time.time()
+        )
+        changed_fields.append("timestamp")
+
+    if not isinstance(data.get("timestamp_fr"), str):
+        ts_for_format = data.get("timestamp")
+        if isinstance(ts_for_format, (int, float)):
+            data["timestamp_fr"] = timestamp2fr(float(ts_for_format))
+            changed_fields.append("timestamp_fr")
+
+    if not isinstance(data.get("total_playlist"), int):
+        raw_scraped = data.get("scraped")
+        raw_adult = data.get("adult_count")
+        scraped_value = raw_scraped if isinstance(raw_scraped, int) else 0
+        adult_value = raw_adult if isinstance(raw_adult, int) else 0
+        data["total_playlist"] = max(0, scraped_value + adult_value)
+        changed_fields.append("total_playlist")
+    else:
+        raw_scraped = data.get("scraped")
+        raw_adult = data.get("adult_count")
+        scraped_value = raw_scraped if isinstance(raw_scraped, int) else 0
+        adult_value = raw_adult if isinstance(raw_adult, int) else 0
+        min_total = max(0, scraped_value + adult_value)
+        if data.get("total_playlist") < min_total:
+            data["total_playlist"] = min_total
+            changed_fields.append("total_playlist")
+
     if not changed_fields:
         return []
 
@@ -669,6 +692,90 @@ def auto_heal_cache_invariants(cache_file):
     return changed_fields
 
 
+def bootstrap_missing_cache_from_legacy():
+    """Restaure OUTPUT_FILE depuis un cache JSON legacy compatible si disponible."""
+    if os.path.isfile(OUTPUT_FILE) or not os.path.isdir(STORAGE_DIR):
+        return None
+
+    candidates = []
+    for name in os.listdir(STORAGE_DIR):
+        if not name.lower().endswith(".json"):
+            continue
+        if name == os.path.basename(OUTPUT_FILE):
+            continue
+        if AUTHOR.lower() not in name.lower():
+            continue
+        path = os.path.join(STORAGE_DIR, name)
+        if os.path.isfile(path):
+            candidates.append(path)
+
+    if not candidates:
+        return None
+
+    # Prend le plus récent parmi les JSON de la chaîne ciblée.
+    candidates.sort(key=os.path.getmtime, reverse=True)
+
+    for candidate in candidates:
+        try:
+            with open(candidate, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            if not isinstance(data, dict):
+                continue
+
+            videos = data.get("videos")
+            if not isinstance(videos, list):
+                continue
+
+            os.makedirs(STORAGE_DIR, exist_ok=True)
+            shutil.copyfile(candidate, OUTPUT_FILE)
+            return candidate
+        except Exception:
+            continue
+
+    return None
+
+
+def extract_playlist_with_hard_timeout(url, ydl_opts, timeout_seconds):
+    """Exécute yt-dlp dans un thread daemon pour éviter un blocage infini de la CLI."""
+    result_holder = {}
+    error_holder = {}
+
+    def _worker():
+        try:
+            with yt_dlp.YoutubeDL(cast("_Params", ydl_opts)) as ydl_list:
+                result_holder["data"] = ydl_list.extract_info(url, download=False)
+        except Exception as exc:
+            error_holder["exc"] = exc
+
+    thread = threading.Thread(target=_worker, daemon=True)
+    thread.start()
+
+    start_time = time.time()
+    elapsed_width = max(2, len(str(timeout_seconds)))
+    next_heartbeat = 5
+    while thread.is_alive():
+        elapsed = int(time.time() - start_time)
+        if elapsed >= timeout_seconds:
+            raise TimeoutError(
+                f"Timeout playlist après {timeout_seconds}s (yt-dlp n'a pas répondu)."
+            )
+
+        if elapsed >= next_heartbeat:
+            print(
+                f"{CYAN}... Attente de la réponse YouTube ( {elapsed:>{elapsed_width}}s écoulées / {timeout_seconds}s max ) ...{R}",
+                flush=True,
+            )
+            next_heartbeat += 5
+
+        thread.join(1)
+
+    if "exc" in error_holder:
+        raise error_holder["exc"]
+
+    return result_holder.get("data")
+
+
 def get_simulated_failure_position(existing_scraped):
     """Retourne la position globale de panne simulée selon l'avancement."""
     if existing_scraped < 2:
@@ -678,8 +785,15 @@ def get_simulated_failure_position(existing_scraped):
     return None
 
 
-def scrap_some():
-    print(f"SCRAP des vidéos de {SB}{AUTHOR}{R}\n{URL}")
+def scrap_some(ida):
+    ini(ida)
+    print(f"SCRAP des vidéos de {SB}{AUTHOR}{R}\n→ {URL}")
+
+    restored_from = bootstrap_missing_cache_from_legacy()
+    if isinstance(restored_from, str):
+        print(
+            f"{CYAN}Cache principal absent: restauration depuis {os.path.basename(restored_from)}.{R}"
+        )
 
     healed_fields = auto_heal_cache_invariants(OUTPUT_FILE)
     if healed_fields:
@@ -701,7 +815,10 @@ def scrap_some():
         cache_is_complete = (
             isinstance(scraped, int)
             and isinstance(effective_total, int)
-            and scraped >= effective_total
+            and (
+                (effective_total == 0 and scraped == 0)
+                or (effective_total > 0 and scraped >= effective_total)
+            )
         )
 
         if (
@@ -729,7 +846,11 @@ def scrap_some():
 
     videos = read_previous_state()
     initial_video_count = len(videos)
-    existing_ids = {v.get("id") for v in videos if isinstance(v, dict) and v.get("id")}
+    existing_ids = {
+        v.get("id")
+        for v in videos
+        if isinstance(v, dict) and isinstance(v.get("id"), str) and v.get("id")
+    }
     adult_ids = read_previous_adult_ids()
     # existing_scraped = len(videos)
     # simulated_failure_position = get_simulated_failure_position(existing_scraped)
@@ -745,7 +866,7 @@ def scrap_some():
 
     if videos:
         print(
-            "État précédent détecté. Vérification complète des IDs pour combler les trous."
+            f"État précédent détecté. {CYAN}Vérification complète des IDs pour combler les trous{R}."
         )
     else:
         print("Aucun état précédent trouvé, démarrage depuis la première vidéo.")
@@ -787,18 +908,46 @@ def scrap_some():
             if isinstance(total_playlist, int)
             else None
         )
-        if isinstance(effective_total, int) and len(videos) >= effective_total:
+        if (
+            isinstance(effective_total, int)
+            and effective_total > 0
+            and len(videos) >= effective_total
+        ):
             break
 
         try:
-            with yt_dlp.YoutubeDL(cast("_Params", YDL_OPTS_LIST)) as ydl_list:
-                playlist_infos = ydl_list.extract_info(URL, download=False)
-                entries = playlist_infos.get("entries", [])
+            print(
+                f"{CYAN}Connexion à YouTube pour récupérer la playlist ({AUTHOR})...{R}",
+                flush=False,  # 2ar ? True
+            )
+            started_at = time.time()
+            playlist_infos = extract_playlist_with_hard_timeout(
+                URL,
+                YDL_OPTS_LIST,
+                PLAYLIST_FETCH_TIMEOUT_SECONDS,
+            )
+            entries = (
+                playlist_infos.get("entries", [])
+                if isinstance(playlist_infos, dict)
+                else []
+            )
+            elapsed = round(time.time() - started_at, 1)
+            print(
+                f"{CYAN}Playlist récupérée en {elapsed}s.{R}",
+                flush=True,
+            )
 
             total_videos = playlist_infos.get("playlist_count")
             detected_total_playlist = (
                 total_videos if isinstance(total_videos, int) else None
             )
+            if (
+                isinstance(detected_total_playlist, int)
+                and detected_total_playlist <= 0
+                and isinstance(entries, list)
+                and len(entries) > 0
+            ):
+                detected_total_playlist = len(entries)
 
             if isinstance(detected_total_playlist, int):
                 total_playlist = detected_total_playlist
@@ -807,16 +956,27 @@ def scrap_some():
                     and previous_total_playlist > 0
                     and detected_total_playlist < previous_total_playlist
                 ):
+                    entries_count = len(entries) if isinstance(entries, list) else 0
+                    detected_matches_entries = (
+                        entries_count > 0 and detected_total_playlist == entries_count
+                    )
                     drop_ratio = (
                         previous_total_playlist - detected_total_playlist
                     ) / previous_total_playlist
-                    if drop_ratio > TOTAL_PLAYLIST_DROP_GUARD_RATIO:
+                    if (
+                        drop_ratio > TOTAL_PLAYLIST_DROP_GUARD_RATIO
+                        and not detected_matches_entries
+                    ):
                         print(
                             f"{YELLOW}Protection total_playlist: nouveau total détecté {detected_total_playlist} inférieur de {drop_ratio * 100:.2f}% à l'ancien {previous_total_playlist}. Ancienne valeur conservée dans le JSON.{R}"
                         )
                         total_playlist = previous_total_playlist
             else:
-                total_playlist = None
+                total_playlist = (
+                    previous_total_playlist
+                    if isinstance(previous_total_playlist, int)
+                    else None
+                )
 
             total_videos_txt = (
                 str(total_videos)
@@ -856,6 +1016,7 @@ def scrap_some():
             ydl_opts_detail["logger"] = YtDlpCountedErrorLogger(error_tracker)
 
             with yt_dlp.YoutubeDL(cast("_Params", ydl_opts_detail)) as ydl_detail:
+                missing_count = max(1, len(missing_in_cache))
                 for idx, entry in enumerate(entries, start=1):
                     if error_tracker.stop_requested:
                         log_threshold_pause_message()
@@ -877,7 +1038,7 @@ def scrap_some():
                         continue
 
                     print(
-                        f"{CYAN}[progress] Vidéo globale {SB}{idx} / {total_entries} - {round(100*idx/total_entries,1)} %{R} {CYAN}| Exécutées : {SB}{run_processed} ( {(run_processed) / len(missing_in_cache) * 100:.1f} % ) {R}{error_tracker.progress_suffix()} | {SB}{AUTHOR}{R}"
+                        f"{CYAN}[progress] Vidéo globale {SB}{idx} / {total_entries} - {round(100*idx/total_entries,1)} %{R} {CYAN}| Exécutées : {SB}{run_processed} ( {(run_processed) / missing_count * 100:.1f} % ) {R}{error_tracker.progress_suffix()} | {SB}{AUTHOR}{R}"
                     )
 
                     try:
@@ -937,7 +1098,11 @@ def scrap_some():
                     run_processed += 1
 
         except Exception as e:
-            print(f"Scrap interrompu: {e}")
+            print(f"{RED}Scrap interrompu: {e}{R}", flush=True)
+            print(
+                f"{YELLOW}Conseil: vérifier la connexion/rate-limit YouTube, puis relancer. Timeout réseau: {YDL_OPTS_LIST.get('socket_timeout')}s/requête, timeout global playlist: {PLAYLIST_FETCH_TIMEOUT_SECONDS}s.{R}",
+                flush=True,
+            )
 
         # ── Fin de passe: décider si on continue, on pause, ou on abandonne ──
         scraped_now = len(videos)
@@ -969,7 +1134,7 @@ def scrap_some():
             adult_ids=adult_ids,
             adult_count=max(persisted_adult_count, len(adult_ids)),
         )
-        write_markdown(
+        bilan = write_markdown(
             sorted(videos, key=video_sort_key, reverse=True),
             total_playlist=(
                 max(0, total_playlist - max(persisted_adult_count, len(adult_ids)))
@@ -977,7 +1142,7 @@ def scrap_some():
                 else None
             ),
         )
-        print(f"JSON intermédiaire écrit ({scraped_now} vidéos).")
+        print(f"{GREEN}JSON intermédiaire écrit ({scraped_now} vidéos).{R}")
         print(
             f"{YELLOW}Pause {PAUSE_ON_RATE_LIMIT}s avant reprise (scraped={scraped_now}, total={total_playlist})...{R}"
         )
@@ -987,6 +1152,7 @@ def scrap_some():
     videos = sorted(videos, key=video_sort_key, reverse=True)
     scraped = len(videos)
     current_adult_count = max(persisted_adult_count, len(adult_ids))
+    bilan = "unused"
 
     current_adult_count = write_result(
         videos=videos,
@@ -997,7 +1163,7 @@ def scrap_some():
     if not isinstance(current_adult_count, int):
         current_adult_count = max(persisted_adult_count, len(adult_ids))
     if len(videos) != initial_video_count:
-        write_markdown(
+        bilan = write_markdown(
             videos,
             total_playlist=(
                 max(0, total_playlist - current_adult_count)
@@ -1006,6 +1172,7 @@ def scrap_some():
             ),
         )
     else:
+        bilan = "Markdown non regénéré (aucun changement détecté)"
         print("Markdown non regénéré (aucun changement détecté).")
     effective_total = (
         max(0, total_playlist - current_adult_count)
@@ -1014,18 +1181,29 @@ def scrap_some():
     )
     status = (
         "complete"
-        if isinstance(effective_total, int) and scraped >= effective_total
+        if isinstance(effective_total, int)
+        and effective_total > 0
+        and scraped >= effective_total
         else "partial"
     )
-    print(f"Fichier JSON écrit: {OUTPUT_FILE}")
+    print(f"{GREEN}Fichier JSON écrit: {OUTPUT_FILE}{R}")
     print(
         f"scraped={scraped}, total_playlist={total_playlist}, adult={current_adult_count}, effective_total={effective_total}, status={status}"
     )
     print(
         f"Erreurs cumulées (403/rate-limit) total toutes passes: {error_tracker.total_count}"
     )
-    print(f"Fin du scrap des vidéos de {SB}{AUTHOR}{R}.")
+    # bilan='oki'
+    print(f"Fin du scrap des vidéos de {SB}{AUTHOR}{R}\n{bilan}.")
 
 
 if __name__ == "__main__":
-    scrap_some()
+
+    cls()
+
+    for i in range(6):
+        end()
+        scrap_some(i)
+        # bip_time()
+        # print("─" * CLIW)
+    end()
