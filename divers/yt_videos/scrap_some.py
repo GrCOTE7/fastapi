@@ -2,6 +2,7 @@ from datetime import datetime
 from importlib import import_module
 import json, locale, os, sys, time
 from typing import TYPE_CHECKING, TypedDict, cast
+from urllib.parse import parse_qs, urlparse
 
 import yt_dlp
 from yt_dlp.utils import DownloadError
@@ -22,17 +23,18 @@ locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")
 #             print("\033[2J\033[H", end="")
 
 from pymox_kit import *
+
 # ❌ Looker ce qui n'a pas été refait ici et redonner le nom to_see à ce script
 
 if TYPE_CHECKING:
     from yt_dlp.YoutubeDL import _Params
 
-# Pour mise au point du script
+# Pour mise au point du script ❌ toutes en partant du bas saud tseries et alphorn
 # AUTHOR = "doro2255"                 #      1 video  -         28 vues - 7 minutes
 # AUTHOR = "LionelCOTE"               #     12 videos -      3 952 vues - 1 heure et 27 minutes - Aide pour mise au point car peu de vidéos
 # AUTHOR = "c57-u5s"                  #     16 videos -      1 097 vues - 11 heures et 23 minutes
 # AUTHOR = "Alphorm"                  #   4064 videos - 15 577 306 vues - 665 heures et 3 minutes - Au passage, diverses notions liées à l'informatique
-# AUTHOR = "tseries"                  # 23 458 vidéos - ❌ - Compte qui génère le + de gains au Monde avec YT !
+AUTHOR = "tseries"  # 23435 videos - 329 006 594 812 vues - 2011 heures et 30 minutes - Compte qui génère le + de gains au Monde avec YT !
 
 
 # Niveau scolaire
@@ -72,7 +74,7 @@ STORAGE_DIR = os.path.join(SCRIPT_DIR, "cache")
 # )  # ❌ Simplify file name author_videos.json
 OUTPUT_FILE = os.path.join(STORAGE_DIR, f".{AUTHOR}_videos_scrap_some.json")  # 2ar
 OUTPUT_MD_FILE = os.path.join(STORAGE_DIR, f"{AUTHOR}.md")
-CACHE_TTL = 3600  # 3600 = 1 heure - 86400 = 1 jour
+CACHE_TTL = 500000  # 3600 = 1 heure - 86400 = 1 jour
 
 _cache_utils_module = import_module(
     f"{__package__}.cache_utils" if __package__ else "cache_utils"
@@ -125,6 +127,73 @@ def is_counted_ytdlp_error(exc):
         or "this content isn't available, try again later" in msg
     )
     return is_403 or is_rate_limited
+
+
+def is_adult_restricted_error(exc):
+    msg = str(exc).lower()
+    return (
+        "sign in to confirm your age" in msg
+        or "confirm your age" in msg
+        or "age-restricted" in msg
+        or "inappropriate for some users" in msg
+    )
+
+
+def is_skippable_unavailable_error(exc):
+    msg = str(exc).lower()
+    return (
+        "private video" in msg
+        or "this video is private" in msg
+        or "video unavailable" in msg
+        or "this video is unavailable" in msg
+        or "has been removed" in msg
+        or "members-only" in msg
+        or "members only" in msg
+    )
+
+
+def extract_youtube_id(video_url):
+    if not isinstance(video_url, str) or not video_url:
+        return None
+
+    # Cas fréquent: yt-dlp fournit directement l'ID vidéo.
+    if (
+        "://" not in video_url
+        and "youtube.com" not in video_url
+        and "youtu.be" not in video_url
+    ):
+        candidate = video_url.strip()
+        if candidate:
+            return candidate
+
+    try:
+        parsed = urlparse(video_url)
+        if parsed.netloc.endswith("youtu.be"):
+            return parsed.path.lstrip("/") or None
+        if "youtube.com" in parsed.netloc:
+            query_id = parse_qs(parsed.query).get("v")
+            if query_id and query_id[0]:
+                return query_id[0]
+            parts = [part for part in parsed.path.split("/") if part]
+            if len(parts) >= 2 and parts[0] in {"shorts", "watch", "live"}:
+                return parts[1]
+    except Exception:
+        return None
+
+    return None
+
+
+def remember_adult_id(adult_ids, current_id, video_url=None):
+    if isinstance(current_id, str) and current_id:
+        adult_ids.add(current_id)
+        return current_id
+
+    extracted_id = extract_youtube_id(video_url)
+    if isinstance(extracted_id, str) and extracted_id:
+        adult_ids.add(extracted_id)
+        return extracted_id
+
+    return None
 
 
 class CountedErrorTracker:
@@ -189,6 +258,16 @@ class YtDlpCountedErrorLogger:
 def timestamp2fr(ts: float) -> str:
     dt = datetime.fromtimestamp(ts)
     return dt.strftime("%d/%m/%Y %H:%M:%S")
+
+
+def timestamp_fr_to_epoch(timestamp_fr):
+    if not isinstance(timestamp_fr, str):
+        return None
+    try:
+        dt = datetime.strptime(timestamp_fr, "%d/%m/%Y %H:%M:%S")
+        return dt.timestamp()
+    except Exception:
+        return None
 
 
 def format_duration(seconds):
@@ -336,24 +415,57 @@ def write_markdown(videos, total_playlist=None):
     print(f"Fichier markdown généré : {OUTPUT_MD_FILE}")
 
 
-def write_result(videos, total_playlist):
+def write_result(videos, total_playlist, adult_ids=None, adult_count=None):
     os.makedirs(STORAGE_DIR, exist_ok=True)
     now_ts = time.time()
     scraped = len(videos)
+    normalized_adults = []
+    if isinstance(adult_ids, (list, set, tuple)):
+        normalized_adults = sorted(
+            {
+                video_id
+                for video_id in adult_ids
+                if isinstance(video_id, str) and video_id
+            }
+        )
+
+    normalized_adult_count = (
+        adult_count if isinstance(adult_count, int) else len(normalized_adults)
+    )
+    if normalized_adult_count < len(normalized_adults):
+        normalized_adult_count = len(normalized_adults)
+    if normalized_adult_count < 0:
+        normalized_adult_count = 0
+
+    if isinstance(total_playlist, int):
+        # Garde une cohérence stricte: effective_total ne doit jamais être < scraped.
+        max_adults_for_consistency = max(0, total_playlist - scraped)
+        if normalized_adult_count > max_adults_for_consistency:
+            normalized_adult_count = max_adults_for_consistency
+
+    effective_total = (
+        max(0, total_playlist - normalized_adult_count)
+        if isinstance(total_playlist, int)
+        else None
+    )
     payload = {
         "url": URL,
         "timestamp": now_ts,
         "timestamp_fr": timestamp2fr(now_ts),
         "scraped": scraped,
         "total_playlist": total_playlist,
+        "adult_count": normalized_adult_count,
         "videos": videos,
+        "adults": normalized_adults,
     }
 
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
+    return normalized_adult_count
 
-def read_previous_result():
+
+def read_previous_state():
     if not os.path.isfile(OUTPUT_FILE):
         return []
 
@@ -370,7 +482,7 @@ def read_previous_result():
 def read_previous_counts():
     """Retourne les compteurs du dernier JSON pour savoir si le cache est complet."""
     if not os.path.isfile(OUTPUT_FILE):
-        return None, None
+        return None, None, 0
 
     try:
         with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
@@ -382,9 +494,179 @@ def read_previous_counts():
             if isinstance(data.get("total_playlist"), int)
             else None
         )
-        return scraped, total_playlist
+
+        adults = data.get("adults")
+        adults_count = (
+            len(
+                [
+                    video_id
+                    for video_id in adults
+                    if isinstance(video_id, str) and video_id
+                ]
+            )
+            if isinstance(adults, list)
+            else None
+        )
+
+        adult_count = data.get("adult_count")
+        if not isinstance(adult_count, int):
+            if adults_count is not None:
+                adult_count = adults_count
+            else:
+                adult_videos = data.get("adult_videos")
+                adult_count = len(adult_videos) if isinstance(adult_videos, list) else 0
+
+        if adults_count is not None and adult_count < adults_count:
+            adult_count = adults_count
+
+        return scraped, total_playlist, adult_count
     except Exception:
-        return None, None
+        return None, None, 0
+
+
+def read_previous_adult_ids():
+    if not os.path.isfile(OUTPUT_FILE):
+        return set()
+
+    try:
+        with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        adults = data.get("adults")
+        if isinstance(adults, list):
+            return {
+                video_id
+                for video_id in adults
+                if isinstance(video_id, str) and video_id
+            }
+
+        adult_videos = data.get("adult_videos")
+        if isinstance(adult_videos, list):
+            return {
+                video.get("id")
+                for video in adult_videos
+                if isinstance(video, dict)
+                and isinstance(video.get("id"), str)
+                and video.get("id")
+            }
+    except Exception:
+        return set()
+
+    return set()
+
+
+def auto_heal_cache_invariants(cache_file):
+    """Corrige uniquement les invariants certains du JSON cache."""
+    if not os.path.isfile(cache_file):
+        return []
+
+    try:
+        with open(cache_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return []
+
+    if not isinstance(data, dict):
+        return []
+
+    changed_fields = []
+
+    adults_raw = data.get("adults")
+    normalized_adults = []
+    if isinstance(adults_raw, list):
+        normalized_adults = sorted(
+            {
+                video_id
+                for video_id in adults_raw
+                if isinstance(video_id, str) and video_id
+            }
+        )
+    else:
+        adult_videos = data.get("adult_videos")
+        if isinstance(adult_videos, list):
+            normalized_adults = sorted(
+                {
+                    video_id
+                    for video in adult_videos
+                    for video_id in [
+                        video.get("id") if isinstance(video, dict) else None
+                    ]
+                    if isinstance(video, dict)
+                    and isinstance(video_id, str)
+                    and video_id
+                }
+            )
+
+    if data.get("adults") != normalized_adults:
+        data["adults"] = normalized_adults
+        changed_fields.append("adults")
+
+    videos = data.get("videos")
+    if isinstance(videos, list):
+        expected_scraped = len(videos)
+        if data.get("scraped") != expected_scraped:
+            data["scraped"] = expected_scraped
+            changed_fields.append("scraped")
+
+    adult_count = data.get("adult_count")
+    if not isinstance(adult_count, int) or adult_count < 0:
+        data["adult_count"] = len(normalized_adults)
+        adult_count = len(normalized_adults)
+        changed_fields.append("adult_count")
+    elif adult_count < len(normalized_adults):
+        data["adult_count"] = len(normalized_adults)
+        adult_count = len(normalized_adults)
+        changed_fields.append("adult_count")
+
+    total_playlist = data.get("total_playlist")
+    if isinstance(total_playlist, int):
+        scraped_value = data.get("scraped")
+        if isinstance(scraped_value, int):
+            max_adults_for_consistency = max(0, total_playlist - scraped_value)
+            if adult_count > max_adults_for_consistency:
+                data["adult_count"] = max_adults_for_consistency
+                adult_count = max_adults_for_consistency
+                changed_fields.append("adult_count")
+
+    expected_timestamp = timestamp_fr_to_epoch(data.get("timestamp_fr"))
+    current_timestamp = data.get("timestamp")
+    if expected_timestamp is not None:
+        if not isinstance(current_timestamp, (int, float)) or (
+            abs(float(current_timestamp) - expected_timestamp) > 2
+        ):
+            data["timestamp"] = float(expected_timestamp)
+            changed_fields.append("timestamp")
+
+    if "complete" in data:
+        data.pop("complete", None)
+        changed_fields.append("complete")
+
+    if "adult_videos" in data:
+        data.pop("adult_videos", None)
+        changed_fields.append("adult_videos")
+
+    if "effective_total" in data:
+        data.pop("effective_total", None)
+        changed_fields.append("effective_total")
+
+    if not changed_fields:
+        return []
+
+    # Evite les doublons si un même champ est corrigé plusieurs fois.
+    changed_fields = list(dict.fromkeys(changed_fields))
+
+    # Conserve adults en fin de fichier JSON pour la lisibilité souhaitée.
+    if "adults" in data:
+        adults_value = data.pop("adults")
+        data["adults"] = adults_value
+
+    try:
+        with open(cache_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception:
+        return []
+
+    return changed_fields
 
 
 def get_simulated_failure_position(existing_scraped):
@@ -399,16 +681,27 @@ def get_simulated_failure_position(existing_scraped):
 def scrap_some():
     print(f"SCRAP des vidéos de {SB}{AUTHOR}{R}\n{URL}")
 
+    healed_fields = auto_heal_cache_invariants(OUTPUT_FILE)
+    if healed_fields:
+        print(
+            f"{YELLOW}Auto-heal cache appliqué (invariants): {', '.join(healed_fields)}{R}"
+        )
+
     cache_entry = get_valid_cache_entry(OUTPUT_FILE, CACHE_TTL)
     if cache_entry is not None:
         cached_videos = cache_entry.get("videos")
         cache_date = cache_entry.get("timestamp_fr")
         remaining_minutes = cache_entry.get("remaining_minutes")
-        scraped, total_playlist = read_previous_counts()
+        scraped, total_playlist, adult_count = read_previous_counts()
+        effective_total = (
+            max(0, total_playlist - adult_count)
+            if isinstance(total_playlist, int)
+            else None
+        )
         cache_is_complete = (
             isinstance(scraped, int)
-            and isinstance(total_playlist, int)
-            and scraped >= total_playlist
+            and isinstance(effective_total, int)
+            and scraped >= effective_total
         )
 
         if (
@@ -417,13 +710,15 @@ def scrap_some():
             and not cache_is_complete
         ):
             print(
-                f"Cache valide mais incomplet ({scraped}/{total_playlist}) : reprise du scraping pour combler les trous."
+                f"Cache valide mais incomplet ({scraped}/{effective_total}) : reprise du scraping pour combler les trous."
             )
 
         if isinstance(cached_videos, list):
             cached_videos = sorted(cached_videos, key=video_sort_key, reverse=True)
             if cache_is_complete:
-                print("Données chargées depuis le cache JSON (valide 1h).")
+                ttl_minutes = max(1, (CACHE_TTL + 59) // 60)
+                ttl_txt = format_remaining_time_fr(ttl_minutes)
+                print(f"Données chargées depuis le cache JSON (valide {ttl_txt}).")
                 if cache_date and isinstance(remaining_minutes, int):
                     remaining_txt = format_remaining_time_fr(remaining_minutes)
                     print(
@@ -432,15 +727,19 @@ def scrap_some():
                 print("Markdown non regénéré (cache TTL valide).")
                 return
 
-    videos = read_previous_result()
+    videos = read_previous_state()
     initial_video_count = len(videos)
     existing_ids = {v.get("id") for v in videos if isinstance(v, dict) and v.get("id")}
+    adult_ids = read_previous_adult_ids()
     # existing_scraped = len(videos)
     # simulated_failure_position = get_simulated_failure_position(existing_scraped)
     # simulated_failure_position = None  # Simulation désactivée
-    _, total_playlist = (
+    _, total_playlist, persisted_adult_count = (
         read_previous_counts()
     )  # récupère total connu pour la vérification de complétude
+    persisted_adult_count = (
+        persisted_adult_count if isinstance(persisted_adult_count, int) else 0
+    )
     previous_total_playlist = total_playlist
     error_tracker = CountedErrorTracker(MAX_CUMULATED_403_ERRORS)
 
@@ -467,6 +766,9 @@ def scrap_some():
         )
 
     def handle_detail_exception(exc, video_url, fallback_prefix):
+        if is_adult_restricted_error(exc):
+            return False
+
         if is_counted_ytdlp_error(exc):
             error_tracker.increment(str(exc), url=video_url, source="exception")
             if error_tracker.stop_requested:
@@ -479,7 +781,13 @@ def scrap_some():
 
     while True:
         # ── Vérification complétude avant chaque passe ──────────────────────
-        if isinstance(total_playlist, int) and len(videos) >= total_playlist:
+        current_adult_count = max(persisted_adult_count, len(adult_ids))
+        effective_total = (
+            max(0, total_playlist - current_adult_count)
+            if isinstance(total_playlist, int)
+            else None
+        )
+        if isinstance(effective_total, int) and len(videos) >= effective_total:
             break
 
         try:
@@ -524,7 +832,9 @@ def scrap_some():
                 if isinstance(e, dict) and isinstance(e.get("id"), str)
             ]
             missing_in_cache = [
-                video_id for video_id in playlist_ids if video_id not in existing_ids
+                video_id
+                for video_id in playlist_ids
+                if video_id not in existing_ids and video_id not in adult_ids
             ]
 
             if missing_in_cache:
@@ -532,9 +842,14 @@ def scrap_some():
                     f"{YELLOW}{len(missing_in_cache)} vidéo(s) absente(s) du cache seront (re)téléchargées.{R}"
                 )
             else:
-                print(
-                    "Aucun trou détecté dans le cache pour les IDs connus de la playlist."
-                )
+                if isinstance(effective_total, int) and len(videos) < effective_total:
+                    print(
+                        f"{YELLOW}Aucun trou détecté sur les IDs remontés par yt-dlp, mais cache encore incomplet ({len(videos)}/{effective_total}). État conservé en partiel.{R}"
+                    )
+                else:
+                    print(
+                        "Aucun trou détecté dans le cache pour les IDs connus de la playlist."
+                    )
                 break
 
             ydl_opts_detail = dict(YDL_OPTS_DETAIL)
@@ -552,7 +867,9 @@ def scrap_some():
                     current_id = entry.get("id")
 
                     # On saute immédiatement les vidéos déjà présentes dans le cache.
-                    if isinstance(current_id, str) and current_id in existing_ids:
+                    if isinstance(current_id, str) and (
+                        current_id in existing_ids or current_id in adult_ids
+                    ):
                         continue
 
                     video_url = entry.get("url") or entry.get("webpage_url")
@@ -568,6 +885,22 @@ def scrap_some():
                             video_url, download=False
                         )
                     except DownloadError as e:
+                        if is_adult_restricted_error(
+                            e
+                        ) or is_skippable_unavailable_error(e):
+                            skipped_video_id = remember_adult_id(
+                                adult_ids, current_id, video_url
+                            )
+                            if skipped_video_id:
+                                reason = (
+                                    "adult"
+                                    if is_adult_restricted_error(e)
+                                    else "indisponible"
+                                )
+                                print(
+                                    f"{YELLOW}Vidéo exclue du total ({reason}): {skipped_video_id}{R}"
+                                )
+                            continue
                         if handle_detail_exception(
                             e, video_url, "Erreur yt-dlp ignorée sur"
                         ):
@@ -585,6 +918,13 @@ def scrap_some():
                         break
 
                     if not isinstance(video_detail, dict):
+                        remembered_id = remember_adult_id(
+                            adult_ids, current_id, video_url
+                        )
+                        if remembered_id:
+                            print(
+                                f"{YELLOW}Vidéo exclue du total (non exploitable): {remembered_id}{R}"
+                            )
                         continue
 
                     video = build_video_payload(video_detail)
@@ -623,13 +963,19 @@ def scrap_some():
         scraped_before_pass = scraped_now
         error_tracker.reset()
         # Sauvegarde de la progression avant la pause (persistance entre passes)
-        write_result(
+        persisted_adult_count = write_result(
             videos=sorted(videos, key=video_sort_key, reverse=True),
             total_playlist=total_playlist,
+            adult_ids=adult_ids,
+            adult_count=max(persisted_adult_count, len(adult_ids)),
         )
         write_markdown(
             sorted(videos, key=video_sort_key, reverse=True),
-            total_playlist=total_playlist,
+            total_playlist=(
+                max(0, total_playlist - max(persisted_adult_count, len(adult_ids)))
+                if isinstance(total_playlist, int)
+                else None
+            ),
         )
         print(f"JSON intermédiaire écrit ({scraped_now} vidéos).")
         print(
@@ -639,15 +985,42 @@ def scrap_some():
         time.sleep(PAUSE_ON_RATE_LIMIT)
 
     videos = sorted(videos, key=video_sort_key, reverse=True)
-    write_result(videos=videos, total_playlist=total_playlist)
+    scraped = len(videos)
+    current_adult_count = max(persisted_adult_count, len(adult_ids))
+
+    current_adult_count = write_result(
+        videos=videos,
+        total_playlist=total_playlist,
+        adult_ids=adult_ids,
+        adult_count=current_adult_count,
+    )
+    if not isinstance(current_adult_count, int):
+        current_adult_count = max(persisted_adult_count, len(adult_ids))
     if len(videos) != initial_video_count:
-        write_markdown(videos, total_playlist=total_playlist)
+        write_markdown(
+            videos,
+            total_playlist=(
+                max(0, total_playlist - current_adult_count)
+                if isinstance(total_playlist, int)
+                else None
+            ),
+        )
     else:
         print("Markdown non regénéré (aucun changement détecté).")
-    scraped = len(videos)
-    complete = isinstance(total_playlist, int) and total_playlist == scraped
+    effective_total = (
+        max(0, total_playlist - current_adult_count)
+        if isinstance(total_playlist, int)
+        else None
+    )
+    status = (
+        "complete"
+        if isinstance(effective_total, int) and scraped >= effective_total
+        else "partial"
+    )
     print(f"Fichier JSON écrit: {OUTPUT_FILE}")
-    print(f"scraped={scraped}, total_playlist={total_playlist}, complete={complete}")
+    print(
+        f"scraped={scraped}, total_playlist={total_playlist}, adult={current_adult_count}, effective_total={effective_total}, status={status}"
+    )
     print(
         f"Erreurs cumulées (403/rate-limit) total toutes passes: {error_tracker.total_count}"
     )

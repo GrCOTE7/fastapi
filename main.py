@@ -15,14 +15,15 @@ from divers.yt_videos.scrap_some import (
 if __name__ == "__main__":
 
     cls()
-
+    
+    print(title_fr())
     # print(*["hello" for _ in range(3)], sep="\n")
 
     # nbmn=2450
     # print(nbmn, '→', format_remaining_time_fr(nbmn))
 
-    df  = scrap_some()
-    print(df)
+    # df  = scrap_some()
+    # print(df)
 
     # df = videos_to_see()
     # print()
