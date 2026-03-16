@@ -1,42 +1,34 @@
 import sys
 from pymox_kit import *
 
-
-def get_author_name(ida=None):
-    """_summary_
-
-    Args:
-        ida (_type_, optional): _description_. Defaults to None.
-
-    Returns:
-        _type_: _description_
-    """
-    AUTHORS = {
-        0: "doro2255",
-        1: "LionelCOTE",
-        2: "c57-u5s",
-        3: "CodeAvecJonathan",
-        4: "DataAvecJB",
-        5: "MasteringAI-q9g",
-        6: "CodeGoat-s2y",
+AUTHORS = {
         
         # 0: "doro2255",
         # 1: "LionelCOTE",
         # 2: "c57-u5s",
-        # 3: "Alphorm",
-        # 4: "tseries",
-        # 5: "coach-exam",
-        # 6: "CodeAvecJonathan",
-        # 7: "Gravenilvectuto",
-        # 8: "hassanbahi",
-        # 9: "donaldprogrammeur",
-        # 10: "DataAvecJB",
-        # 11: "bandedecodeurs",
-        # 12: "MasteringAI-q9g",
-        # 13: "CodeGoat-s2y",
-        # 14: "KevinDegila",
-        # 15: "InformatiqueSansComplexe",
-        # 16: "MachineLearnia",
+        # 3: "CodeAvecJonathan",
+        # 4: "DataAvecJB",
+        # 5: "MasteringAI-q9g",
+        # 6: "CodeGoat-s2y",
+        # 7: "tseries",
+        
+        0: "doro2255",
+        1: "LionelCOTE",
+        2: "c57-u5s",
+        3: "Alphorm",
+        4: "tseries",
+        5: "coach-exam",
+        6: "CodeAvecJonathan",
+        7: "Gravenilvectuto",
+        8: "hassanbahi",
+        9: "donaldprogrammeur",
+        10: "DataAvecJB",
+        11: "bandedecodeurs",
+        12: "MasteringAI-q9g",
+        13: "CodeGoat-s2y",
+        14: "KevinDegila",
+        15: "InformatiqueSansComplexe",
+        16: "MachineLearnia",
     }
 
     # Pour mise au point du script ❌ toutes en partant du bas saud tseries et alphorn
@@ -70,6 +62,17 @@ def get_author_name(ida=None):
     # AUTHOR = "KevinDegila"              #
     # AUTHOR = "InformatiqueSansComplexe" #    284 videos -  1 809 388 vues - 33 heures et  8 minutes
     # AUTHOR = "MachineLearnia"           #     65 videos - 11 493 021 vues - 22 heures et 53 minutes
+    
+def get_author_name(ida=None):
+    """_summary_
+
+    Args:
+        ida (_type_, optional): _description_. Defaults to None.
+
+    Returns:
+        _type_: _description_
+    """
+    
 
     if isinstance(ida, int) and ida in AUTHORS:
         return AUTHORS[ida]
@@ -78,8 +81,11 @@ def get_author_name(ida=None):
         sys.exit(
             f"{RED}{ida} n'est pas un index correct{R}... : {RED}AUTHOR n'est pas défini dans {SB}{file}{R}. Arrêt du script.{R}"
         )
+        
+def nb_authors():
+    return len(AUTHORS)
 
 
 if __name__ == "__main__":
     URL = get_author_name(0)
-    print(f"{GREEN}{URL}{R}")
+    print(f"{GREEN}{URL}{R}\n{GREEN}Nombre d'auteurs disponibles : {nb_authors()}{R}")

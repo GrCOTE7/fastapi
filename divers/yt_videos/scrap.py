@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
 
 def ini(ida):
-    global AUTHOR, URL, SCRIPT_DIR, STORAGE_DIR, OUTPUT_FILE, OUTPUT_MD_FILE, CACHE_TTL, MAX_CUMULATED_403_ERRORS, PAUSE_ON_RATE_LIMIT, MAX_STALL_RETRIES, TOTAL_PLAYLIST_DROP_GUARD_RATIO, PLAYLIST_FETCH_TIMEOUT_SECONDS, get_valid_cache_entry, _cache_utils_module
+    global AUTHOR, URL, SCRIPT_DIR, STORAGE_DIR, OUTPUT_FILE, OUTPUT_MD_FILE, CACHE_TTL, MAX_CUMULATED_403_ERRORS, PAUSE_ON_RATE_LIMIT, MAX_STALL_RETRIES, TOTAL_PLAYLIST_DROP_GUARD_RATIO, PLAYLIST_FETCH_TIMEOUT_SECONDS, PLAYLIST_FETCH_MAX_TOTAL_SECONDS, get_valid_cache_entry, _cache_utils_module
 
     AUTHOR = auth.get_author_name(ida)  # 1 → 16
     URL = f"https://www.youtube.com/@{AUTHOR}/videos"
@@ -40,13 +40,14 @@ def ini(ida):
 
     OUTPUT_FILE = os.path.join(STORAGE_DIR, f"{AUTHOR}_videos.json")  # 2ar
     OUTPUT_MD_FILE = os.path.join(STORAGE_DIR, f"{AUTHOR}_YT.md")
-    CACHE_TTL = 600  # 3600 = 1 heure - 86400 = 1 jour
+    CACHE_TTL = 3600  # 3600 = 1 heure - 86400 = 1 jour
 
     MAX_CUMULATED_403_ERRORS = 7
     PAUSE_ON_RATE_LIMIT = 5  # secondes d'attente avant reprise automatique
     MAX_STALL_RETRIES = 3  # passes sans progression avant arrêt définitif
     TOTAL_PLAYLIST_DROP_GUARD_RATIO = 0.03  # 3%
-    PLAYLIST_FETCH_TIMEOUT_SECONDS = 45
+    PLAYLIST_FETCH_TIMEOUT_SECONDS = 45  # timeout d'inactivité (pas un timeout global)
+    PLAYLIST_FETCH_MAX_TOTAL_SECONDS = 900  # garde-fou global (15 min)
 
     _cache_utils_module = import_module(
         f"{__package__}.cache_utils" if __package__ else "cache_utils"
@@ -391,7 +392,9 @@ def write_markdown(videos, total_playlist=None):
     return bilan
 
 
-def write_result(videos, total_playlist, adult_ids=None, adult_count=None):
+def write_result(
+    videos, total_playlist, adult_ids=None, adult_count=None, cache_valid=True
+):
     os.makedirs(STORAGE_DIR, exist_ok=True)
     now_ts = time.time()
     scraped = len(videos)
@@ -428,6 +431,7 @@ def write_result(videos, total_playlist, adult_ids=None, adult_count=None):
         "url": URL,
         "timestamp": now_ts,
         "timestamp_fr": timestamp2fr(now_ts),
+        "cache_valid": bool(cache_valid),
         "scraped": scraped,
         "total_playlist": total_playlist,
         "adult_count": normalized_adult_count,
@@ -736,14 +740,64 @@ def bootstrap_missing_cache_from_legacy():
     return None
 
 
-def extract_playlist_with_hard_timeout(url, ydl_opts, timeout_seconds):
-    """Exécute yt-dlp dans un thread daemon pour éviter un blocage infini de la CLI."""
+def extract_playlist_with_hard_timeout(
+    url, ydl_opts, timeout_seconds, max_total_seconds=None
+):
+    """Exécute yt-dlp avec timeout d'inactivité + garde-fou global."""
     result_holder = {}
     error_holder = {}
 
+    # Le timeout court doit déclencher seulement si plus aucun log n'arrive.
+    last_activity = time.time()
+
+    class PlaylistActivityLogger:
+        def __init__(self, base_logger=None):
+            self.base_logger = base_logger
+
+        def _touch(self):
+            nonlocal last_activity
+            last_activity = time.time()
+
+        def debug(self, msg):
+            self._touch()
+            if self.base_logger and hasattr(self.base_logger, "debug"):
+                self.base_logger.debug(msg)
+            else:
+                print(msg)
+
+        def info(self, msg):
+            self._touch()
+            if self.base_logger and hasattr(self.base_logger, "info"):
+                self.base_logger.info(msg)
+            else:
+                print(msg)
+
+        def warning(self, msg):
+            self._touch()
+            if self.base_logger and hasattr(self.base_logger, "warning"):
+                self.base_logger.warning(msg)
+            else:
+                print(msg)
+
+        def error(self, msg):
+            self._touch()
+            if self.base_logger and hasattr(self.base_logger, "error"):
+                self.base_logger.error(msg)
+            else:
+                print(msg)
+
+    ydl_opts_list = dict(ydl_opts)
+    ydl_opts_list["logger"] = PlaylistActivityLogger(ydl_opts_list.get("logger"))
+
+    effective_max_total = (
+        max_total_seconds
+        if isinstance(max_total_seconds, int) and max_total_seconds > 0
+        else max(timeout_seconds * 20, timeout_seconds + 60)
+    )
+
     def _worker():
         try:
-            with yt_dlp.YoutubeDL(cast("_Params", ydl_opts)) as ydl_list:
+            with yt_dlp.YoutubeDL(cast("_Params", ydl_opts_list)) as ydl_list:
                 result_holder["data"] = ydl_list.extract_info(url, download=False)
         except Exception as exc:
             error_holder["exc"] = exc
@@ -752,20 +806,30 @@ def extract_playlist_with_hard_timeout(url, ydl_opts, timeout_seconds):
     thread.start()
 
     start_time = time.time()
-    elapsed_width = max(2, len(str(timeout_seconds)))
+    elapsed_width = max(2, len(str(effective_max_total)))
     next_heartbeat = 5
     while thread.is_alive():
         elapsed = int(time.time() - start_time)
-        if elapsed >= timeout_seconds:
+        idle_for = int(time.time() - last_activity)
+
+        if idle_for >= timeout_seconds:
             raise TimeoutError(
-                f"Timeout playlist après {timeout_seconds}s (yt-dlp n'a pas répondu)."
+                f"Timeout playlist après {timeout_seconds}s sans activité réseau détectée (logs yt-dlp inactifs)."
             )
 
-        if elapsed >= next_heartbeat:
+        if elapsed >= effective_max_total:
+            raise TimeoutError(
+                f"Timeout playlist global après {effective_max_total}s (garde-fou)."
+            )
+
+        # N'affiche l'attente que s'il y a une vraie inactivité.
+        if elapsed >= next_heartbeat and idle_for >= 5:
             print(
-                f"{CYAN}... Attente de la réponse YouTube ( {elapsed:>{elapsed_width}}s écoulées / {timeout_seconds}s max ) ...{R}",
+                f"{CYAN}... Attente de la réponse YouTube ( {elapsed:>{elapsed_width}}s écoulées / {effective_max_total}s max, activité il y a {idle_for}s ) ...{R}",
                 flush=True,
             )
+            next_heartbeat += 5
+        elif elapsed >= next_heartbeat:
             next_heartbeat += 5
 
         thread.join(1)
@@ -880,6 +944,7 @@ def scrap_some(ida):
 
     stall_retries = 0
     scraped_before_pass = len(videos)
+    has_fetched_playlist_this_run = False
 
     def log_threshold_pause_message():
         print(
@@ -909,11 +974,21 @@ def scrap_some(ida):
             else None
         )
         if (
-            isinstance(effective_total, int)
+            has_fetched_playlist_this_run
+            and isinstance(effective_total, int)
             and effective_total > 0
             and len(videos) >= effective_total
         ):
             break
+
+        if (
+            isinstance(effective_total, int)
+            and effective_total > 0
+            and len(videos) >= effective_total
+        ):
+            print(
+                f"{CYAN}Cache local marqué complet ({len(videos)}/{effective_total}) : vérification YouTube en cours pour détecter d'éventuelles nouveautés...{R}"
+            )
 
         try:
             print(
@@ -925,7 +1000,9 @@ def scrap_some(ida):
                 URL,
                 YDL_OPTS_LIST,
                 PLAYLIST_FETCH_TIMEOUT_SECONDS,
+                PLAYLIST_FETCH_MAX_TOTAL_SECONDS,
             )
+            has_fetched_playlist_this_run = True
             entries = (
                 playlist_infos.get("entries", [])
                 if isinstance(playlist_infos, dict)
@@ -1133,6 +1210,7 @@ def scrap_some(ida):
             total_playlist=total_playlist,
             adult_ids=adult_ids,
             adult_count=max(persisted_adult_count, len(adult_ids)),
+            cache_valid=has_fetched_playlist_this_run,
         )
         bilan = write_markdown(
             sorted(videos, key=video_sort_key, reverse=True),
@@ -1159,6 +1237,7 @@ def scrap_some(ida):
         total_playlist=total_playlist,
         adult_ids=adult_ids,
         adult_count=current_adult_count,
+        cache_valid=has_fetched_playlist_this_run,
     )
     if not isinstance(current_adult_count, int):
         current_adult_count = max(persisted_adult_count, len(adult_ids))
@@ -1201,9 +1280,10 @@ if __name__ == "__main__":
 
     cls()
 
-    for i in range(6):
+    nb = len(auth.AUTHORS)
+    for i in range(nb):
         end()
+        print(f'{SB}{i+1:> 3}{R} / {nb:> 3} → {SB}{auth.AUTHORS[i]}{R}')
         scrap_some(i)
-        # bip_time()
-        # print("─" * CLIW)
     end()
+

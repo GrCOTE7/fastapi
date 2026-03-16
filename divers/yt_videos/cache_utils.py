@@ -46,6 +46,11 @@ def get_valid_cache_entry(cache_file: str, cache_ttl: int) -> Optional[ValidCach
     if not data:
         return None
 
+    # Les anciens caches (sans marqueur) sont considérés non fiables,
+    # et un cache explicitement invalide force aussi un refetch.
+    if "cache_valid" not in data or data.get("cache_valid") is False:
+        return None
+
     timestamp = data.get("timestamp")
     if not isinstance(timestamp, (int, float)):
         return None
