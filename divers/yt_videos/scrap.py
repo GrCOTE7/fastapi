@@ -1,5 +1,6 @@
 from datetime import datetime
 from importlib import import_module
+import select
 import json, locale, os, shutil, time, threading, yt_dlp
 from yt_dlp.utils import DownloadError
 from typing import TYPE_CHECKING, TypedDict, cast
@@ -1280,10 +1281,23 @@ if __name__ == "__main__":
 
     cls()
 
-    nb = len(auth.AUTHORS)
-    for i in range(nb):
+    # nb = len(auth.AUTHORS)
+    # for i in range(nb):
+
+    selected_yt_accounts = [
+        3,
+        6,
+        8,
+        9,
+        13,
+        14,
+    ]  # Indices des comptes à scraper
+
+    nb = len(selected_yt_accounts)
+    for i in selected_yt_accounts:
         end()
-        print(f'{SB}{i+1:> 3}{R} / {nb:> 3} → {SB}{auth.AUTHORS[i]}{R}')
+        print(
+            f"{SB}{i:> 3}{R} {SB}{selected_yt_accounts.index(i)+1:> 3}{R} / {nb:> 3} → {SB}{auth.AUTHORS[i]}{R}"
+        )
         scrap_some(i)
     end()
-
