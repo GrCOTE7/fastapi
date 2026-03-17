@@ -397,12 +397,16 @@ def write_markdown(videos, total_playlist=None):
 
 def build_scrap_summary_row(ida, author, videos):
     videos_count = len(videos) if isinstance(videos, list) else 0
-    total_views = sum(
-        int(v.get("vues") or 0) for v in videos if isinstance(v, dict)
-    ) if isinstance(videos, list) else 0
-    total_duration_seconds = sum(
-        int(v.get("duration") or 0) for v in videos if isinstance(v, dict)
-    ) if isinstance(videos, list) else 0
+    total_views = (
+        sum(int(v.get("vues") or 0) for v in videos if isinstance(v, dict))
+        if isinstance(videos, list)
+        else 0
+    )
+    total_duration_seconds = (
+        sum(int(v.get("duration") or 0) for v in videos if isinstance(v, dict))
+        if isinstance(videos, list)
+        else 0
+    )
     total_duration_txt = format_remaining_time_fr(total_duration_seconds // 60)
     total_views_txt = f"{total_views:,}".replace(",", " ")
 
@@ -1344,11 +1348,10 @@ if __name__ == "__main__":
     cls()
 
     # Scrap partiel - Indices des comptes à scraper
-    
-    res=[]
-    # selected_yt_accounts = [0, 2, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16]
-    selected_yt_accounts = [0, 1, 2, 5, 6, 7, 10, 11, 12, 13, 14, 15, 16]
-    selected_yt_accounts = [0, 1, 2, 6, 10, 11, 12, 16]
+
+    res = []
+    selected_yt_accounts = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+    # selected_yt_accounts = [0, 1, 2, 6, 10, 11, 12, 16]
     nb = len(selected_yt_accounts)
     for i in selected_yt_accounts:
         end()
@@ -1358,7 +1361,6 @@ if __name__ == "__main__":
         res.append(scrap_some(i))
     end()
     print_scrap_summary_table(res)
-    
 
     # Scrap total
     # nb = len(auth.AUTHORS)
