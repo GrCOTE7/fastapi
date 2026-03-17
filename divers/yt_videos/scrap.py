@@ -2,6 +2,7 @@ from datetime import datetime
 from importlib import import_module
 import select
 import json, locale, os, shutil, time, threading, yt_dlp
+from tabulate import tabulate
 from yt_dlp.utils import DownloadError
 from typing import TYPE_CHECKING, TypedDict, cast
 from urllib.parse import parse_qs, urlparse
@@ -41,7 +42,8 @@ def ini(ida):
 
     OUTPUT_FILE = os.path.join(STORAGE_DIR, f"{AUTHOR}_videos.json")  # 2ar
     OUTPUT_MD_FILE = os.path.join(STORAGE_DIR, f"{AUTHOR}_YT.md")
-    CACHE_TTL = 3600  # 3600 = 1 heure - 86400 = 1 jour
+    CACHE_TTL = 86400  # 3600 = 1 heure - 86400 = 1 jour
+    # CACHE_TTL = 60  # 3600 = 1 heure - 86400 = 1 jour
 
     MAX_CUMULATED_403_ERRORS = 7
     PAUSE_ON_RATE_LIMIT = 5  # secondes d'attente avant reprise automatique
@@ -391,6 +393,35 @@ def write_markdown(videos, total_playlist=None):
     print(f"{GREEN}Fichier markdown généré : {OUTPUT_MD_FILE}{R}")
 
     return bilan
+
+
+def build_scrap_summary_row(ida, author, videos):
+    videos_count = len(videos) if isinstance(videos, list) else 0
+    total_views = sum(
+        int(v.get("vues") or 0) for v in videos if isinstance(v, dict)
+    ) if isinstance(videos, list) else 0
+    total_duration_seconds = sum(
+        int(v.get("duration") or 0) for v in videos if isinstance(v, dict)
+    ) if isinstance(videos, list) else 0
+    total_duration_txt = format_remaining_time_fr(total_duration_seconds // 60)
+    total_views_txt = f"{total_views:,}".replace(",", " ")
+
+    return [ida, author, videos_count, total_views_txt, total_duration_txt]
+
+
+def print_scrap_summary_table(rows):
+    if not rows:
+        return
+
+    headers = ["id", "AUTHOR", "videos", "vues", "duree cumulee"]
+    print(
+        tabulate(
+            rows,
+            headers=headers,
+            tablefmt="fancy_grid",
+            colalign=("right", "left", "right", "right", "left"),
+        )
+    )
 
 
 def write_result(
@@ -906,8 +937,14 @@ def scrap_some(ida):
                     print(
                         f"Dernière mise à jour: {cache_date} (prochaine actualisation dans environ {CYAN}{remaining_txt}{R})."
                     )
-                print("Markdown non regénéré (cache TTL valide).")
-                return
+                if os.path.isfile(OUTPUT_MD_FILE):
+                    print("Markdown non regénéré (cache TTL valide).")
+                else:
+                    write_markdown(cached_videos, total_playlist=effective_total)
+                    print(
+                        f"{YELLOW}Markdown régénéré car fichier absent (cache TTL valide).{R}"
+                    )
+                return build_scrap_summary_row(ida, AUTHOR, cached_videos)
 
     videos = read_previous_state()
     initial_video_count = len(videos)
@@ -1069,10 +1106,20 @@ def scrap_some(ida):
                 for e in entries
                 if isinstance(e, dict) and isinstance(e.get("id"), str)
             ]
+            if adult_ids:
+                playlist_id_set = set(playlist_ids)
+                stale_adults = {
+                    video_id
+                    for video_id in adult_ids
+                    if video_id not in playlist_id_set
+                }
+                if stale_adults:
+                    adult_ids.difference_update(stale_adults)
+                    print(
+                        f"{YELLOW}{len(stale_adults)} ID(s) adults obsolètes retirés (absents de la playlist courante).{R}"
+                    )
             missing_in_cache = [
-                video_id
-                for video_id in playlist_ids
-                if video_id not in existing_ids and video_id not in adult_ids
+                video_id for video_id in playlist_ids if video_id not in existing_ids
             ]
 
             if missing_in_cache:
@@ -1106,9 +1153,7 @@ def scrap_some(ida):
                     current_id = entry.get("id")
 
                     # On saute immédiatement les vidéos déjà présentes dans le cache.
-                    if isinstance(current_id, str) and (
-                        current_id in existing_ids or current_id in adult_ids
-                    ):
+                    if isinstance(current_id, str) and current_id in existing_ids:
                         continue
 
                     video_url = entry.get("url") or entry.get("webpage_url")
@@ -1127,18 +1172,24 @@ def scrap_some(ida):
                         if is_adult_restricted_error(
                             e
                         ) or is_skippable_unavailable_error(e):
-                            skipped_video_id = remember_adult_id(
-                                adult_ids, current_id, video_url
-                            )
-                            if skipped_video_id:
-                                reason = (
-                                    "adult"
-                                    if is_adult_restricted_error(e)
-                                    else "indisponible"
+                            if is_adult_restricted_error(e):
+                                skipped_video_id = remember_adult_id(
+                                    adult_ids, current_id, video_url
                                 )
-                                print(
-                                    f"{YELLOW}Vidéo exclue du total ({reason}): {skipped_video_id}{R}"
+                                if skipped_video_id:
+                                    print(
+                                        f"{YELLOW}Vidéo exclue du total (adult): {skipped_video_id}{R}"
+                                    )
+                            else:
+                                skipped_video_id = (
+                                    current_id
+                                    if isinstance(current_id, str) and current_id
+                                    else extract_youtube_id(video_url)
                                 )
+                                if skipped_video_id:
+                                    print(
+                                        f"{YELLOW}Vidéo indisponible (non comptée comme adult): {skipped_video_id}{R}"
+                                    )
                             continue
                         if handle_detail_exception(
                             e, video_url, "Erreur yt-dlp ignorée sur"
@@ -1157,12 +1208,14 @@ def scrap_some(ida):
                         break
 
                     if not isinstance(video_detail, dict):
-                        remembered_id = remember_adult_id(
-                            adult_ids, current_id, video_url
+                        skipped_video_id = (
+                            current_id
+                            if isinstance(current_id, str) and current_id
+                            else extract_youtube_id(video_url)
                         )
-                        if remembered_id:
+                        if skipped_video_id:
                             print(
-                                f"{YELLOW}Vidéo exclue du total (non exploitable): {remembered_id}{R}"
+                                f"{YELLOW}Vidéo non exploitable (non comptée comme adult): {skipped_video_id}{R}"
                             )
                         continue
 
@@ -1173,6 +1226,11 @@ def scrap_some(ida):
                     videos.append(video)
                     if video_id:
                         existing_ids.add(video_id)
+                        if video_id in adult_ids:
+                            adult_ids.discard(video_id)
+                            print(
+                                f"{GREEN}ID retiré de adults après revalidation réussie: {video_id}{R}"
+                            )
                     run_processed += 1
 
         except Exception as e:
@@ -1242,7 +1300,8 @@ def scrap_some(ida):
     )
     if not isinstance(current_adult_count, int):
         current_adult_count = max(persisted_adult_count, len(adult_ids))
-    if len(videos) != initial_video_count:
+    markdown_missing = not os.path.isfile(OUTPUT_MD_FILE)
+    if len(videos) != initial_video_count or markdown_missing:
         bilan = write_markdown(
             videos,
             total_playlist=(
@@ -1251,6 +1310,8 @@ def scrap_some(ida):
                 else None
             ),
         )
+        if markdown_missing and len(videos) == initial_video_count:
+            print(f"{YELLOW}Markdown régénéré car fichier absent.{R}")
     else:
         bilan = "Markdown non regénéré (aucun changement détecté)"
         print("Markdown non regénéré (aucun changement détecté).")
@@ -1275,29 +1336,40 @@ def scrap_some(ida):
     )
     # bilan='oki'
     print(f"Fin du scrap des vidéos de {SB}{AUTHOR}{R}\n{bilan}.")
+    return build_scrap_summary_row(ida, AUTHOR, videos)
 
 
 if __name__ == "__main__":
 
     cls()
 
-    # nb = len(auth.AUTHORS)
-    # for i in range(nb):
-
-    selected_yt_accounts = [
-        3,
-        6,
-        8,
-        9,
-        13,
-        14,
-    ]  # Indices des comptes à scraper
-
+    # Scrap partiel - Indices des comptes à scraper
+    
+    res=[]
+    # selected_yt_accounts = [0, 2, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16]
+    selected_yt_accounts = [0, 1, 2, 5, 6, 7, 10, 11, 12, 13, 14, 15, 16]
+    selected_yt_accounts = [0, 1, 2, 6, 10, 11, 12, 16]
     nb = len(selected_yt_accounts)
     for i in selected_yt_accounts:
         end()
         print(
             f"{SB}{i:> 3}{R} {SB}{selected_yt_accounts.index(i)+1:> 3}{R} / {nb:> 3} → {SB}{auth.AUTHORS[i]}{R}"
         )
-        scrap_some(i)
+        res.append(scrap_some(i))
     end()
+    print_scrap_summary_table(res)
+    
+
+    # Scrap total
+    # nb = len(auth.AUTHORS)
+    # for i in range(nb):
+    #     end()
+    #     print(
+    #         f"{SB}{i:> 3}{R} / {nb:> 3} → {SB}{auth.AUTHORS[i]}{R}"
+    #     )
+    #     scrap_some(i)
+    # end()
+
+    # Scrap unique
+    # scrap_some(8)
+    # end()
