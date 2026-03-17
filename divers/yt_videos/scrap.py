@@ -1369,8 +1369,9 @@ if __name__ == "__main__":
     #     print(
     #         f"{SB}{i:> 3}{R} / {nb:> 3} → {SB}{auth.AUTHORS[i]}{R}"
     #     )
-    #     scrap_some(i)
+    #     res.append(scrap_some(i))
     # end()
+    # print_scrap_summary_table(res)
 
     # Scrap unique
     # scrap_some(8)
