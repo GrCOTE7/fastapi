@@ -1,10 +1,11 @@
 from datetime import datetime
 from importlib import import_module
+import re
 import select
 import json, locale, os, shutil, time, threading, yt_dlp
 from tabulate import tabulate
 from yt_dlp.utils import DownloadError
-from typing import TYPE_CHECKING, TypedDict, cast
+from typing import TYPE_CHECKING, Optional, TypedDict, cast
 from urllib.parse import parse_qs, urlparse
 import inc.authors as auth
 
@@ -25,7 +26,7 @@ locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")
 
 from pymox_kit import *
 
-# ❌ Looker ce qui n'a pas été refait ici et redonner le nom to_see à ce script
+# ❌ Looker ce qui n'a pas été refait ici par rapport à to_see.py et del to_see
 
 if TYPE_CHECKING:
     from yt_dlp.YoutubeDL import _Params
@@ -42,8 +43,8 @@ def ini(ida):
 
     OUTPUT_FILE = os.path.join(STORAGE_DIR, f"{AUTHOR}_videos.json")  # 2ar
     OUTPUT_MD_FILE = os.path.join(STORAGE_DIR, f"{AUTHOR}_YT.md")
-    CACHE_TTL = 86400  # 3600 = 1 heure - 86400 = 1 jour
-    # CACHE_TTL = 60  # 3600 = 1 heure - 86400 = 1 jour
+    # CACHE_TTL = 86400  # 3600 = 1 heure - 86400 = 1 jour
+    CACHE_TTL = 60
 
     MAX_CUMULATED_403_ERRORS = 7
     PAUSE_ON_RATE_LIMIT = 5  # secondes d'attente avant reprise automatique
@@ -69,6 +70,7 @@ class YdlOpts(TypedDict, total=False):
     check_formats: bool
     socket_timeout: int
     logger: object
+    playlist_items: str
 
 
 YDL_OPTS_LIST: YdlOpts = {
@@ -91,6 +93,97 @@ YDL_OPTS_DETAIL: YdlOpts = {
     "socket_timeout": 20,
 }
 
+KNOWN_IDS_STOP_THRESHOLD = 7
+RECENT_PLAYLIST_SCAN_STEP = 40
+RECENT_PLAYLIST_SCAN_MAX = 400
+
+
+def probe_latest_playlist_video_id(url: str) -> Optional[str]:
+    """Récupère l'ID de la vidéo la plus récente avec une requête ultra-légère."""
+    probe_opts = dict(YDL_OPTS_LIST)
+    probe_opts["playlist_items"] = "1"
+
+    try:
+        infos = extract_playlist_with_hard_timeout(
+            url,
+            probe_opts,
+            timeout_seconds=min(20, PLAYLIST_FETCH_TIMEOUT_SECONDS),
+            max_total_seconds=min(60, PLAYLIST_FETCH_MAX_TOTAL_SECONDS),
+        )
+    except Exception:
+        return None
+
+    if not isinstance(infos, dict):
+        return None
+
+    entries = infos.get("entries")
+    if isinstance(entries, list) and entries:
+        latest_entry_id = extract_entry_video_id(entries[0])
+        if isinstance(latest_entry_id, str) and latest_entry_id:
+            return latest_entry_id
+
+    return None
+
+
+def extract_playlist_ids(entries):
+    return [
+        entry_id
+        for e in entries
+        for entry_id in [extract_entry_video_id(e)]
+        if isinstance(entry_id, str) and entry_id
+    ]
+
+
+def scan_recent_entries_until_known_ids(
+    url: str,
+    existing_ids,
+    adult_ids,
+    known_ids_target=KNOWN_IDS_STOP_THRESHOLD,
+):
+    """Charge progressivement le haut de playlist jusqu'à retrouver N IDs connus consécutifs."""
+    upper_bound = 0
+    best_entries = []
+    detected_total = None
+    known_streak = 0
+
+    while upper_bound < RECENT_PLAYLIST_SCAN_MAX:
+        upper_bound = min(upper_bound + RECENT_PLAYLIST_SCAN_STEP, RECENT_PLAYLIST_SCAN_MAX)
+        scan_opts = dict(YDL_OPTS_LIST)
+        scan_opts["playlist_items"] = f"1:{upper_bound}"
+
+        infos = extract_playlist_with_hard_timeout(
+            url,
+            scan_opts,
+            timeout_seconds=min(20, PLAYLIST_FETCH_TIMEOUT_SECONDS),
+            max_total_seconds=min(120, PLAYLIST_FETCH_MAX_TOTAL_SECONDS),
+        )
+
+        if not isinstance(infos, dict):
+            return None, None, 0, upper_bound
+
+        entries = infos.get("entries", []) if isinstance(infos.get("entries"), list) else []
+        best_entries = entries
+
+        playlist_count = infos.get("playlist_count")
+        if isinstance(playlist_count, int):
+            detected_total = playlist_count
+
+        playlist_ids = list(dict.fromkeys(extract_playlist_ids(entries)))
+        known_streak = 0
+        for video_id in playlist_ids:
+            if video_id in existing_ids or video_id in adult_ids:
+                known_streak += 1
+            else:
+                known_streak = 0
+
+            if known_streak >= known_ids_target:
+                return best_entries, detected_total, known_streak, upper_bound
+
+        if len(entries) < upper_bound:
+            return best_entries, detected_total, known_streak, upper_bound
+
+    return best_entries, detected_total, known_streak, upper_bound
+
 
 def is_counted_ytdlp_error(exc):
     msg = str(exc).lower()
@@ -108,9 +201,15 @@ def is_adult_restricted_error(exc):
     msg = str(exc).lower()
     return (
         "sign in to confirm your age" in msg
+        or "sign in to confirm that you may be age-restricted" in msg
+        or "this video may be inappropriate for some users" in msg
+        or "the uploader has not made this video available in your country" in msg
         or "confirm your age" in msg
         or "age-restricted" in msg
         or "inappropriate for some users" in msg
+        or "connectez-vous pour confirmer votre âge" in msg
+        or "confirmer votre âge" in msg
+        or "réservée à un public averti" in msg
     )
 
 
@@ -154,6 +253,23 @@ def extract_youtube_id(video_url):
                 return parts[1]
     except Exception:
         return None
+
+    return None
+
+
+def extract_entry_video_id(entry):
+    """Retourne un ID vidéo robuste depuis une entrée playlist yt-dlp."""
+    if not isinstance(entry, dict):
+        return None
+
+    current_id = entry.get("id")
+    if isinstance(current_id, str) and current_id:
+        return current_id
+
+    for key in ("url", "webpage_url", "original_url"):
+        extracted = extract_youtube_id(entry.get(key))
+        if isinstance(extracted, str) and extracted:
+            return extracted
 
     return None
 
@@ -210,10 +326,25 @@ class YtDlpCountedErrorLogger:
 
     def __init__(self, tracker):
         self.tracker = tracker
+        self._adult_detected_ids = set()
+
+    @staticmethod
+    def _extract_video_id_from_log(text):
+        match = re.search(r"\[youtube\]\s+([A-Za-z0-9_-]{6,})\s*:", text)
+        if not match:
+            return None
+        return match.group(1)
+
+    def is_adult_candidate(self, video_id):
+        return isinstance(video_id, str) and video_id in self._adult_detected_ids
 
     def _handle(self, msg, level):
         text = str(msg)
         print(text)
+        if is_adult_restricted_error(text):
+            detected_id = self._extract_video_id_from_log(text)
+            if detected_id:
+                self._adult_detected_ids.add(detected_id)
         if is_counted_ytdlp_error(text):
             self.tracker.increment(text, source=f"log:{level}")
 
@@ -695,7 +826,8 @@ def auto_heal_cache_invariants(cache_file):
             data["timestamp_fr"] = timestamp2fr(float(ts_for_format))
             changed_fields.append("timestamp_fr")
 
-    if not isinstance(data.get("total_playlist"), int):
+    total_playlist = data.get("total_playlist")
+    if not isinstance(total_playlist, int):
         raw_scraped = data.get("scraped")
         raw_adult = data.get("adult_count")
         scraped_value = raw_scraped if isinstance(raw_scraped, int) else 0
@@ -708,7 +840,7 @@ def auto_heal_cache_invariants(cache_file):
         scraped_value = raw_scraped if isinstance(raw_scraped, int) else 0
         adult_value = raw_adult if isinstance(raw_adult, int) else 0
         min_total = max(0, scraped_value + adult_value)
-        if data.get("total_playlist") < min_total:
+        if total_playlist < min_total:
             data["total_playlist"] = min_total
             changed_fields.append("total_playlist")
 
@@ -968,6 +1100,73 @@ def scrap_some(ida):
         persisted_adult_count if isinstance(persisted_adult_count, int) else 0
     )
     previous_total_playlist = total_playlist
+    latest_cached_video_id = (
+        videos[0].get("id")
+        if videos
+        and isinstance(videos[0], dict)
+        and isinstance(videos[0].get("id"), str)
+        and videos[0].get("id")
+        else None
+    )
+
+    previous_effective_total = (
+        max(0, total_playlist - persisted_adult_count)
+        if isinstance(total_playlist, int)
+        else None
+    )
+    previous_cache_is_complete = (
+        isinstance(previous_effective_total, int)
+        and (
+            (previous_effective_total == 0 and initial_video_count == 0)
+            or (previous_effective_total > 0 and initial_video_count >= previous_effective_total)
+        )
+    )
+    use_recent_incremental_scan = False
+    if previous_cache_is_complete:
+        print(
+            f"{CYAN}Cache TTL expiré: vérification ultra-légère du dernier ID publié...{R}"
+        )
+        probed_latest_video_id = probe_latest_playlist_video_id(URL)
+        if (
+            isinstance(probed_latest_video_id, str)
+            and isinstance(latest_cached_video_id, str)
+            and probed_latest_video_id == latest_cached_video_id
+        ):
+            print(
+                f"{GREEN}Dernier ID inchangé ({probed_latest_video_id}) : cache conservé, scraping détaillé ignoré.{R}"
+            )
+            videos = sorted(videos, key=video_sort_key, reverse=True)
+            current_adult_count = write_result(
+                videos=videos,
+                total_playlist=total_playlist,
+                adult_ids=adult_ids,
+                adult_count=max(persisted_adult_count, len(adult_ids)),
+                cache_valid=True,
+            )
+            if not isinstance(current_adult_count, int):
+                current_adult_count = max(persisted_adult_count, len(adult_ids))
+
+            if os.path.isfile(OUTPUT_MD_FILE):
+                print("Markdown non regénéré (cache prolongé après vérification du total).")
+            else:
+                write_markdown(videos, total_playlist=previous_effective_total)
+                print(
+                    f"{YELLOW}Markdown régénéré car fichier absent (cache prolongé).{R}"
+                )
+            return build_scrap_summary_row(ida, AUTHOR, videos)
+
+        if isinstance(probed_latest_video_id, str) and isinstance(
+            latest_cached_video_id, str
+        ):
+            print(
+                f"{YELLOW}Dernier ID changé ({latest_cached_video_id} -> {probed_latest_video_id}) : scraping détaillé nécessaire.{R}"
+            )
+            use_recent_incremental_scan = True
+        else:
+            print(
+                f"{YELLOW}Probe ID non concluant: poursuite du scraping détaillé.{R}"
+            )
+
     error_tracker = CountedErrorTracker(MAX_CUMULATED_403_ERRORS)
 
     if videos:
@@ -1033,30 +1232,79 @@ def scrap_some(ida):
             )
 
         try:
-            print(
-                f"{CYAN}Connexion à YouTube pour récupérer la playlist ({AUTHOR})...{R}",
-                flush=False,  # 2ar ? True
-            )
             started_at = time.time()
-            playlist_infos = extract_playlist_with_hard_timeout(
-                URL,
-                YDL_OPTS_LIST,
-                PLAYLIST_FETCH_TIMEOUT_SECONDS,
-                PLAYLIST_FETCH_MAX_TOTAL_SECONDS,
-            )
-            has_fetched_playlist_this_run = True
-            entries = (
-                playlist_infos.get("entries", [])
-                if isinstance(playlist_infos, dict)
-                else []
-            )
+            if use_recent_incremental_scan and not has_fetched_playlist_this_run:
+                print(
+                    f"{CYAN}Connexion à YouTube (mode incrémental): scan des entrées récentes jusqu'à {KNOWN_IDS_STOP_THRESHOLD} IDs déjà connus...{R}",
+                    flush=False,
+                )
+                (
+                    recent_entries,
+                    recent_total_videos,
+                    known_streak,
+                    scanned_limit,
+                ) = scan_recent_entries_until_known_ids(
+                    URL,
+                    existing_ids,
+                    adult_ids,
+                    known_ids_target=KNOWN_IDS_STOP_THRESHOLD,
+                )
+                has_fetched_playlist_this_run = True
+
+                if (
+                    isinstance(recent_entries, list)
+                    and known_streak >= KNOWN_IDS_STOP_THRESHOLD
+                ):
+                    entries = recent_entries
+                    total_videos = recent_total_videos
+                    print(
+                        f"{CYAN}Mode incrémental validé: {known_streak} IDs connus consécutifs retrouvés dans les {len(entries)} premières entrées (borne {scanned_limit}).{R}"
+                    )
+                else:
+                    print(
+                        f"{YELLOW}Mode incrémental insuffisant ({known_streak}/{KNOWN_IDS_STOP_THRESHOLD} IDs connus consécutifs, borne {scanned_limit}) : bascule en scan complet.{R}"
+                    )
+                    use_recent_incremental_scan = False
+                    print(
+                        f"{CYAN}Connexion à YouTube pour récupérer la playlist complète ({AUTHOR})...{R}",
+                        flush=False,
+                    )
+                    playlist_infos = extract_playlist_with_hard_timeout(
+                        URL,
+                        YDL_OPTS_LIST,
+                        PLAYLIST_FETCH_TIMEOUT_SECONDS,
+                        PLAYLIST_FETCH_MAX_TOTAL_SECONDS,
+                    )
+                    if isinstance(playlist_infos, dict):
+                        entries = playlist_infos.get("entries", [])
+                        total_videos = playlist_infos.get("playlist_count")
+                    else:
+                        entries = []
+                        total_videos = None
+            else:
+                print(
+                    f"{CYAN}Connexion à YouTube pour récupérer la playlist ({AUTHOR})...{R}",
+                    flush=False,
+                )
+                playlist_infos = extract_playlist_with_hard_timeout(
+                    URL,
+                    YDL_OPTS_LIST,
+                    PLAYLIST_FETCH_TIMEOUT_SECONDS,
+                    PLAYLIST_FETCH_MAX_TOTAL_SECONDS,
+                )
+                has_fetched_playlist_this_run = True
+                if isinstance(playlist_infos, dict):
+                    entries = playlist_infos.get("entries", [])
+                    total_videos = playlist_infos.get("playlist_count")
+                else:
+                    entries = []
+                    total_videos = None
             elapsed = round(time.time() - started_at, 1)
             print(
                 f"{CYAN}Playlist récupérée en {elapsed}s.{R}",
                 flush=True,
             )
 
-            total_videos = playlist_infos.get("playlist_count")
             detected_total_playlist = (
                 total_videos if isinstance(total_videos, int) else None
             )
@@ -1105,11 +1353,9 @@ def scrap_some(ida):
             print(f"{RED}{total_videos_txt} vidéo(s){R} trouvée(s) dans la playlist.")
             total_entries = len(entries)
             run_processed = 0
-            playlist_ids = [
-                e.get("id")
-                for e in entries
-                if isinstance(e, dict) and isinstance(e.get("id"), str)
-            ]
+            playlist_ids = extract_playlist_ids(entries)
+            # Déduplication stable: évite de retraiter deux fois le même ID.
+            playlist_ids = list(dict.fromkeys(playlist_ids))
             if adult_ids:
                 playlist_id_set = set(playlist_ids)
                 stale_adults = {
@@ -1123,7 +1369,9 @@ def scrap_some(ida):
                         f"{YELLOW}{len(stale_adults)} ID(s) adults obsolètes retirés (absents de la playlist courante).{R}"
                     )
             missing_in_cache = [
-                video_id for video_id in playlist_ids if video_id not in existing_ids
+                video_id
+                for video_id in playlist_ids
+                if video_id not in existing_ids and video_id not in adult_ids
             ]
 
             if missing_in_cache:
@@ -1132,6 +1380,20 @@ def scrap_some(ida):
                 )
             else:
                 if isinstance(effective_total, int) and len(videos) < effective_total:
+                    hidden_count_from_playlist = 0
+                    if isinstance(total_playlist, int) and total_playlist > 0:
+                        hidden_count_from_playlist = max(
+                            0, total_playlist - len(playlist_ids)
+                        )
+
+                    if (
+                        hidden_count_from_playlist > 0
+                        and hidden_count_from_playlist > current_adult_count
+                    ):
+                        persisted_adult_count = hidden_count_from_playlist
+                        print(
+                            f"{YELLOW}Aucun ID manquant détecté mais {hidden_count_from_playlist} vidéo(s) sont comptées par YouTube sans ID exploitable: adult_count ajusté à {persisted_adult_count}.{R}"
+                        )
                     print(
                         f"{YELLOW}Aucun trou détecté sur les IDs remontés par yt-dlp, mais cache encore incomplet ({len(videos)}/{effective_total}). État conservé en partiel.{R}"
                     )
@@ -1142,7 +1404,8 @@ def scrap_some(ida):
                 break
 
             ydl_opts_detail = dict(YDL_OPTS_DETAIL)
-            ydl_opts_detail["logger"] = YtDlpCountedErrorLogger(error_tracker)
+            detail_logger = YtDlpCountedErrorLogger(error_tracker)
+            ydl_opts_detail["logger"] = detail_logger
 
             with yt_dlp.YoutubeDL(cast("_Params", ydl_opts_detail)) as ydl_detail:
                 missing_count = max(1, len(missing_in_cache))
@@ -1154,13 +1417,17 @@ def scrap_some(ida):
                     if not isinstance(entry, dict):
                         continue
 
-                    current_id = entry.get("id")
+                    current_id = extract_entry_video_id(entry)
 
                     # On saute immédiatement les vidéos déjà présentes dans le cache.
                     if isinstance(current_id, str) and current_id in existing_ids:
                         continue
+                    if isinstance(current_id, str) and current_id in adult_ids:
+                        continue
 
                     video_url = entry.get("url") or entry.get("webpage_url")
+                    if not video_url and isinstance(current_id, str) and current_id:
+                        video_url = f"https://www.youtube.com/watch?v={current_id}"
                     if not video_url:
                         continue
 
@@ -1191,8 +1458,11 @@ def scrap_some(ida):
                                     else extract_youtube_id(video_url)
                                 )
                                 if skipped_video_id:
+                                    remember_adult_id(
+                                        adult_ids, skipped_video_id, video_url
+                                    )
                                     print(
-                                        f"{YELLOW}Vidéo indisponible (non comptée comme adult): {skipped_video_id}{R}"
+                                        f"{YELLOW}Vidéo exclue du total (indisponible): {skipped_video_id}{R}"
                                     )
                             continue
                         if handle_detail_exception(
@@ -1212,14 +1482,24 @@ def scrap_some(ida):
                         break
 
                     if not isinstance(video_detail, dict):
-                        skipped_video_id = (
+                        candidate_id = (
                             current_id
                             if isinstance(current_id, str) and current_id
                             else extract_youtube_id(video_url)
                         )
-                        if skipped_video_id:
+                        if candidate_id:
+                            remember_adult_id(adult_ids, candidate_id, video_url)
+                            if detail_logger.is_adult_candidate(candidate_id):
+                                print(
+                                    f"{YELLOW}Vidéo exclue du total (adult via logs): {candidate_id}{R}"
+                                )
+                            else:
+                                print(
+                                    f"{YELLOW}Vidéo exclue du total (non exploitable): {candidate_id}{R}"
+                                )
+                        else:
                             print(
-                                f"{YELLOW}Vidéo non exploitable (non comptée comme adult): {skipped_video_id}{R}"
+                                f"{YELLOW}Vidéo non exploitable sans ID détectable: {video_url}{R}"
                             )
                         continue
 

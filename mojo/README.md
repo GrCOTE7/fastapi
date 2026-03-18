@@ -1,6 +1,6 @@
 # 2do Guide apprentissage Mojo
 
-Tutoriel introductif en français : Tutoriel Mojo – Study with GPT → Présentation claire du langage, avec un premier “Hello World” et les concepts fondamentaux.
+T❌ ☢️ ☢️ ☢️ ❌ Tutoriel introductif en français : Tutoriel Mojo – Study with GPT → Présentation claire du langage, avec un premier “Hello World” et les concepts fondamentaux.
 https://www.studywithgpt.com/fr/tutorial/avc2po
 
 24 ' - Vidéo YouTube : Mojo Programming Language Basics → Une introduction visuelle et pratique, idéale si tu préfères apprendre en regardant.
