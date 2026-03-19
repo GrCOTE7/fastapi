@@ -1,7 +1,7 @@
 import asyncio
 import os
 from dotenv import load_dotenv
-from mistralai import Mistral
+from mistralai.client import Mistral
 import re
 
 # Charger le .env
