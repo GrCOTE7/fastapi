@@ -29,6 +29,9 @@ AUTHORS = {
         14: "InformatiqueSansComplexe",
         15: "MachineLearnia",
         16: "CodeGoat-s2y",
+        17: "2minutesPy",
+        18: "JordyBayo",
+        19: "Faireaimerlesmathématiques-h4w"
     }
 
 # Pour mise au point du script ❌ toutes en partant du bas saud tseries et alphorn

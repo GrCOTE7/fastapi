@@ -1,6 +1,7 @@
 from datetime import datetime
 from importlib import import_module
 import re
+import select
 import json, locale, os, shutil, time, threading, yt_dlp
 from tabulate import tabulate
 from yt_dlp.utils import DownloadError
@@ -1793,19 +1794,27 @@ if __name__ == "__main__":
     cls()
 
     # Scrap partiel - Indices des comptes à scraper
-
+    nb = auth.nb_authors()
     res = []
-    selected_yt_accounts = [0, 1, 2, 6, 10, 11, 12, 16]
-    selected_yt_accounts = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
-    nb = len(selected_yt_accounts)
-    for i in selected_yt_accounts:
+    selected_yt_users_ids = [0, 1, 2, 6, 10, 11, 12, 16]
+    selected_yt_users_ids = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+    selected_yt_users_ids = [17]
+    selected_yt_users_ids = list(range(nb)) # All
+    selected_yt_users_ids.remove(3)
+    selected_yt_users_ids.remove(4)
+    selected_yt_users_ids.remove(9)
+
+    if (1) :
+        for i in selected_yt_users_ids:
+            end()
+            print(
+                f"{SB}{i:> 3}{R} {SB}{selected_yt_users_ids.index(i)+1:> 3}{R} / {nb:> 3} → {SB}{auth.AUTHORS[i]}{R}"
+            )
+            res.append(scrap_some(i))
         end()
-        print(
-            f"{SB}{i:> 3}{R} {SB}{selected_yt_accounts.index(i)+1:> 3}{R} / {nb:> 3} → {SB}{auth.AUTHORS[i]}{R}"
-        )
-        res.append(scrap_some(i))
-    end()
-    print_scrap_summary_table(res)
+        print_scrap_summary_table(res)
+
+    # print (list(selected_yt_users_ids))
 
     # Scrap total
     # nb = len(auth.AUTHORS)
@@ -1820,4 +1829,4 @@ if __name__ == "__main__":
 
     # Scrap unique
     # scrap_some(8)
-    # end()
+    end()
