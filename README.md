@@ -1,3 +1,14 @@
+Après récup de tout ce qui importe, del
+
+//2ar .venv/
+//2ar .vscode/
+//2ar datasets/
+//2ar .env
+//2ar .env_example
+//2ar .gitattributes
+//2ar .gitignore
+
+
 [![Typing SVG](https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=28&duration=2000&pause=400&color=6366F1&center=true&vCenter=true&multiline=true&repeat=false&width=600&height=100&lines=Hey+%F0%9F%91%8B+I'm+GrCOTE7;Just+A+French+Dev+%F0%9F%9A%80)](https://github.com/GrCOTE7)
 
 [![Website](https://img.shields.io/badge/cote7.com-6366F1?style=for-the-badge&logo=safari)](https://cote7.com) [![Instagram](https://img.shields.io/badge/Instagram-GC7-E4405F?style=for-the-badge&logo=instagram)](https://www.instagram.com/grcote7) [![GitHub followers](https://img.shields.io/github/followers/grcote7?style=for-the-badge&logo=github&color=6366F1)](https://github.com/grcote7?tab=followers)
